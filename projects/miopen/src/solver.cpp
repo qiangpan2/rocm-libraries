@@ -726,6 +726,12 @@ inline SolverRegistrar::SolverRegistrar(IdRegistryData& registry)
              miopenConvolutionAlgoImplicitGEMM);
 
     Register(registry, ++id, Primitive::Normalization, layernorm::LayernormBackward().SolverDbId());
+#if MIOPEN_BACKEND_HIP && MIOPEN_USE_CKTILE_COMPOSABLEKERNEL
+    RegisterWithSolver(registry,
+                       ++id,
+                       conv::ConvHipImplicitGemm3DChannelLastFwdWmmaops{},
+                       miopenConvolutionAlgoImplicitGEMM);
+#endif
     // IMPORTANT: New solvers should be added to the end of the function, and don't leave a white
     // space between this comment and the newly registered solver(s)!
 }
