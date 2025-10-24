@@ -389,9 +389,11 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
                                             WeiDataType,
                                             AccDataType,
                                             CodegenShape,
-                                            typename GroupedConvTraitsType::GroupedConvImplicitGemmTraits,
+                                            typename GroupedConvTraitsType::GroupedConvImplicitGemmTraitsFwd,
+                                            ck_tile::element_wise::PassThrough,
+                                            ck_tile::element_wise::PassThrough,
                                             InDataType,
-                                            true,
+                                            false,
                                             VectorSizeA,
                                             VectorSizeB>;
         
