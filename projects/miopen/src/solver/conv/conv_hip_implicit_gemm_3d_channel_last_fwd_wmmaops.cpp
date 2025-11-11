@@ -390,7 +390,7 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
                                             typename GroupedConvTraitsType::template GroupedConvImplicitGemmTraitsFwd<1>, // Add template parameter
                                             ck_tile::element_wise::PassThrough,
                                             ck_tile::element_wise::PassThrough,
-                                            InDataType,
+                                            OutDataType,
                                             false,
                                             VectorSizeA,
                                             VectorSizeB>;
