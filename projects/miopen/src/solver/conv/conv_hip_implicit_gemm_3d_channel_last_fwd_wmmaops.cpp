@@ -380,7 +380,16 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
 
         using TilePartitioner = ck_tile::GemmTile1DPartitioner<CodegenShape>;
         using GroupedConvTraitsType =
-            ck_tile::GroupedConvTraits<NDimSpatial, ConvSpec, InLayout, WeiLayout, DsLayout, OutLayout>;
+            ck_tile::GroupedConvTraits<NDimSpatial, 
+                                       ConvSpec, 
+                                       InLayout, 
+                                       WeiLayout, 
+                                       DsLayout, 
+                                       OutLayout,
+                                       VectorSizeA,
+                                       VectorSizeB,
+                                       VectorSizeC,
+                                       1>;
         
         using CodegenPipelineProblem =
             ck_tile::GemmPipelineProblem<InDataType,
@@ -391,9 +400,9 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
                                             ck_tile::element_wise::PassThrough,
                                             ck_tile::element_wise::PassThrough,
                                             OutDataType,
-                                            false,
-                                            VectorSizeA,
-                                            VectorSizeB>;
+                                            GroupedConvTraitsType::FixedGemmParams::FixedVectorSize,
+                                            GroupedConvTraitsType::VectorSizeA,
+                                            GroupedConvTraitsType::VectorSizeB>;
         
         using CodegenPipeline = ck_tile::GemmPipelineAGmemBGmemCRegV1<CodegenPipelineProblem>;
 
