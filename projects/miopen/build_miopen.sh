@@ -1,9 +1,11 @@
 #!/bin/bash
 
-PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/rocm/opencl/bin:/opt/rocm/hip/bin:/opt/rocm/hcc/bin:/opt/rocm/bin:/opt/conda/envs/py_3.12/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;
-DEPS_PREFIX="${HOME}/miopen-deps"
-MIOPEN_PREFIX="${HOME}/miopen-install"
+export PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/rocm/opencl/bin:/opt/rocm/hip/bin:/opt/rocm/hcc/bin:/opt/rocm/bin:/opt/conda/envs/py_3.12/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;
+export DEPS_PREFIX="${HOME}/miopen-deps"
+export MIOPEN_PREFIX="${HOME}/miopen-install"
 
+export CPLUS_INCLUDE_PATH=/root/miopen-deps/include:$CPLUS_INCLUDE_PATH
+export C_INCLUDE_PATH=/root/miopen-deps/include:$C_INCLUDE_PATH
 # 配置 CMake with proper GPU target flags
 echo "Configuring CMake..."
 cmake -B build \
