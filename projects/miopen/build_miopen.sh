@@ -38,6 +38,9 @@ export MIOPEN_LOG_LEVEL=6
 
 ./bin/MIOpenDriver convbfp16 -n 1 -c 16 --in_d 5 -H 104 -W 60 -k 16 --fil_d 1 -y 1 -x 1 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1
 
+#hang
+MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 3 -H 138 -W 102 -k 1024 --fil_d 3 -y 3 -x 3 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 > convbfp16_hang.log 2>&1
+
 # 安装项目
 echo "Installing MIOpen..."
 cmake --install build
