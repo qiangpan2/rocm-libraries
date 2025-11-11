@@ -1,8 +1,5 @@
-apt install -y libboost-tools-dev
-
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-source ~/.bashrc
-
+#!/bin/bash
+exec bash -l
 DEPS_PREFIX="${HOME}/miopen-deps"
 mkdir -p build
 mkdir -p "${DEPS_PREFIX}"

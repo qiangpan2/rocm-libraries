@@ -1,12 +1,13 @@
 #!/bin/bash
 
+PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/rocm/opencl/bin:/opt/rocm/hip/bin:/opt/rocm/hcc/bin:/opt/rocm/bin:/opt/conda/envs/py_3.12/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;
 DEPS_PREFIX="${HOME}/miopen-deps"
 MIOPEN_PREFIX="${HOME}/miopen-install"
 
 # 配置 CMake with proper GPU target flags
 echo "Configuring CMake..."
 cmake -B build \
-    -DCMAKE_PREFIX_PATH="${DEPS_PREFIX};/opt/rocm" \
+    -DCMAKE_PREFIX_PATH="${DEPS_PREFIX}" \
     -DCMAKE_INSTALL_PREFIX="${MIOPEN_PREFIX}" \
     -DMIOPEN_BACKEND=HIP \
     -DMIOPEN_USE_COMPOSABLEKERNEL=ON \
