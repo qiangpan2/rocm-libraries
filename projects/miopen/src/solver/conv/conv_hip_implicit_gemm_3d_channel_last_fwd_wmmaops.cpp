@@ -378,7 +378,6 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
                                    ck_tile::sequence<M_Warp, N_Warp, K_Warp>,
                                    ck_tile::sequence<M_Warp_Tile, N_Warp_Tile, K_Warp_Tile>>;
 
-        using TilePartitioner = ck_tile::GemmTile1DPartitioner<CodegenShape>;
         using GroupedConvTraitsType =
             ck_tile::GroupedConvTraits<NDimSpatial, 
                                        ConvSpec, 
@@ -390,6 +389,10 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
                                        VectorSizeB,
                                        VectorSizeC,
                                        1>;
+        using TilePartitioner = ck_tile::GemmSpatiallyLocalTilePartitioner<
+            CodegenShape,
+            GroupedConvTraitsType::FixedGemmParams::TilePartitionerGroupNum,
+            GroupedConvTraitsType::FixedGemmParams::TilePartitionerM01>;
         
         using CodegenPipelineProblem =
             ck_tile::GemmPipelineProblem<InDataType,
