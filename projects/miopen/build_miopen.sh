@@ -4,8 +4,6 @@ export PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/ro
 export DEPS_PREFIX="${HOME}/miopen-deps"
 export MIOPEN_PREFIX="${HOME}/miopen-install"
 
-export CPLUS_INCLUDE_PATH=/root/miopen-deps/include:$CPLUS_INCLUDE_PATH
-export C_INCLUDE_PATH=/root/miopen-deps/include:$C_INCLUDE_PATH
 # 配置 CMake with proper GPU target flags
 echo "Configuring CMake..."
 cmake -B build \
@@ -18,6 +16,8 @@ cmake -B build \
     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
     -DBUILD_TESTING=ON \
+    -DCMAKE_CXX_FLAGS="-I/root/miopen-deps/include" \
+    -DCMAKE_HIP_FLAGS="-I/root/miopen-deps/include" \
     -G Ninja --debug-output > cmake_config.log 2>&1
 
 # 构建项目

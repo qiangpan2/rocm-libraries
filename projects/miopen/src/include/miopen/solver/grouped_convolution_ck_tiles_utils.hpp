@@ -126,7 +126,7 @@ auto create_args(int argc, char* argv[])
     return std::make_tuple(result, arg_parser);
 }
 
-// host API
-float grouped_conv_fwd(const ck_tile::GroupedConvFwdHostArgs& args,
-                       const ck_tile::stream_config& s);
+// // host API
+// float grouped_conv_fwd(const ck_tile::GroupedConvFwdHostArgs& args,
+//                        const ck_tile::stream_config& s);
 #endif // MIOPEN_BACKEND_HIP && MIOPEN_USE_CKTILE_COMPOSABLEKERNEL
