@@ -1,5 +1,5 @@
 #!/bin/bash
-
+export HIP_VISIBLE_DEVICES=1
 export PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/rocm/opencl/bin:/opt/rocm/hip/bin:/opt/rocm/hcc/bin:/opt/rocm/bin:/opt/conda/envs/py_3.12/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;
 export DEPS_PREFIX="${HOME}/miopen-deps"
 export MIOPEN_PREFIX="${HOME}/miopen-install"
@@ -26,7 +26,7 @@ cmake --build build -j8 > build.log 2>&1
 # 3dconv solver test
 LD_LIBRARY_PATH=/workspace/repo/rocm-libraries/projects/miopen/build/lib:$LD_LIBRARY_PATH
 
-export HIP_VISIBLE_DEVICES=1
+
 export MIOPEN_DEBUG_3D_CONV_IMPLICIT_GEMM_HIP_CHANNEL_LAST_FWD_WMMAOPS=1
 
 export MIOPEN_ENABLE_LOGGING=1
@@ -39,7 +39,9 @@ export MIOPEN_LOG_LEVEL=6
 ./bin/MIOpenDriver convbfp16 -n 1 -c 16 --in_d 5 -H 104 -W 60 -k 16 --fil_d 1 -y 1 -x 1 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1
 
 #hang
-MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 3 -H 138 -W 102 -k 1024 --fil_d 3 -y 3 -x 3 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 > convbfp16_hang.log 2>&1
+MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 3 -H 138 -W 102 -k 1024 --fil_d 3 -y 3 -x 3 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 -V 0 > convbfp16_hang.log 2>&1
+
+MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 1 -H 272 -W 200 -k 512 --fil_d 1 -y 1 -x 1 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 -V 0 > convbfp16_hang.log 2>&1
 
 # 安装项目
 echo "Installing MIOpen..."
