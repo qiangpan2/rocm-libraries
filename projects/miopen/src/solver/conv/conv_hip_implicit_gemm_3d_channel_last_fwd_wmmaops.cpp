@@ -491,38 +491,9 @@ struct MIOPENConvConfig3D_Minimal : public ConvConfigBase
     static constexpr int kBlockPerCu = 2;
 };
 
-// Helper function to select appropriate configuration based on problem dimensions
-template<typename CKDataType>
-auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChannelLastFwd<CKDataType>& ck_args) {
-    // Get dimensions
-    const auto G = ProblemInterpreter::GetGroupCountG(problem);
-    const auto C1 = ProblemInterpreter::GetInputChannelC(problem);
-    const auto K1 = ProblemInterpreter::GetOutputChannelK(problem);
-    const auto C = C1 / G;  // Input channels per group
-    const auto K = K1 / G;  // Output channels per group
-
-    // Select configuration based on channel divisibility
-    // Try to use the largest vector size possible for better performance
-    if(C % 8 == 0 && K % 8 == 0)
-    {
-        // Use default configuration with VectorSize 8
-        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D<CKDataType>>(problem, ck_args);
-    }
-    else if(C % 4 == 0 && K % 4 == 0)
-    {
-        // Use small configuration with VectorSize 4
-        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D_Small<CKDataType>>(problem, ck_args);
-    }
-    else
-    {
-        // Use minimal configuration with VectorSize 1 for maximum compatibility
-        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D_Minimal<CKDataType>>(problem, ck_args);
-    }
-}
-
 // Helper function to convert miopen data type to CK tile data type and run the kernel
 template<typename CKDataType, typename ConvConfig>
-auto CreateKernelInvokerWithConfig(const ProblemDescription& problem, const CKArgs3DChannelLastFwd<CKDataType>& ck_args) {
+Invoker CreateKernelInvokerWithConfig(const ProblemDescription& problem, const CKArgs3DChannelLastFwd<CKDataType>& ck_args) {
     return [=](const Handle& handle, const AnyInvokeParams& primitive_params) {
         const auto& data_ctx = primitive_params.CastTo<miopen::conv::DataInvokeParams>();
 
@@ -722,6 +693,35 @@ auto CreateKernelInvokerWithConfig(const ProblemDescription& problem, const CKAr
             handle.AccumKernelTime(ave_time);
         }
     };
+}
+
+// Helper function to select appropriate configuration based on problem dimensions
+template<typename CKDataType>
+Invoker CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChannelLastFwd<CKDataType>& ck_args) {
+    // Get dimensions
+    const auto G = ProblemInterpreter::GetGroupCountG(problem);
+    const auto C1 = ProblemInterpreter::GetInputChannelC(problem);
+    const auto K1 = ProblemInterpreter::GetOutputChannelK(problem);
+    const auto C = C1 / G;  // Input channels per group
+    const auto K = K1 / G;  // Output channels per group
+
+    // Select configuration based on channel divisibility
+    // Try to use the largest vector size possible for better performance
+    if(C % 8 == 0 && K % 8 == 0)
+    {
+        // Use default configuration with VectorSize 8
+        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D<CKDataType>>(problem, ck_args);
+    }
+    else if(C % 4 == 0 && K % 4 == 0)
+    {
+        // Use small configuration with VectorSize 4
+        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D_Small<CKDataType>>(problem, ck_args);
+    }
+    else
+    {
+        // Use minimal configuration with VectorSize 1 for maximum compatibility
+        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D_Minimal<CKDataType>>(problem, ck_args);
+    }
 }
 
 // Get the solution for the given problem and configuration
