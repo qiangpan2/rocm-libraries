@@ -28,10 +28,11 @@ LD_LIBRARY_PATH=/workspace/repo/rocm-libraries/projects/miopen/build/lib:$LD_LIB
 
 
 export MIOPEN_DEBUG_3D_CONV_IMPLICIT_GEMM_HIP_CHANNEL_LAST_FWD_WMMAOPS=1
-
+export MIOPEN_DEBUG_CONV_DIRECT_NAIVE_CONV_FWD=0
 export MIOPEN_ENABLE_LOGGING=1
 export MIOPEN_ENABLE_LOGGING_CMD=1
 export MIOPEN_LOG_LEVEL=6
+
 
 ./bin/test_conv3d_channel_last_wmmaops 
 ./bin/MIOpenDriver convfp16 -n 1 -c 16 --in_d 5 -H 104 -W 60 -k 16 --fil_d 1 -y 1 -x 1 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1
@@ -41,7 +42,7 @@ export MIOPEN_LOG_LEVEL=6
 #hang case check
 MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 3 -H 138 -W 102 -k 1024 --fil_d 3 -y 3 -x 3 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 -V 0 
 
-MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 1 -H 272 -W 200 -k 512 --fil_d 1 -y 1 -x 1 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 -V 0 
+MIOpenDriver convbfp16 -n 1 -c 1024 --in_d 1 -H 272 -W 200 -k 512 --fil_d 1 -y 1 -x 1 --pad_d 0 -p 0 -q 0 --conv_stride_d 1 -u 1 -v 1 --dilation_d 1 -l 1 -j 1 --spatial_dim 3 --in_layout NDHWC --fil_layout NDHWC --out_layout NDHWC -m conv -g 1 -F 1 -t 1 -V 0 > convbfp16_hang.log
 
 # 安装项目
 echo "Installing MIOpen..."
