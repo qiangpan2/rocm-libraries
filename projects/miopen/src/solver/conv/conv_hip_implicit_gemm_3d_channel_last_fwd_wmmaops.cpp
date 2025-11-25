@@ -649,7 +649,7 @@ Invoker CreateKernelInvokerWithConfig(const ProblemDescription& problem, const C
 
                 if(!Kernel::IsSupportedArgument(kargs))
                 {
-                    throw std::runtime_error("Wrong! Arguments not supported! Skipping conv!\n");
+                    MIOPEN_THROW("Arguments not supported for this configuration");
                 }
 
                 if(ck_stream_config.log_level_ > 0)
@@ -745,7 +745,7 @@ ConvSolution ConvHipImplicitGemm3DChannelLastFwdWmmaops::GetSolution(
         }
         else {
             // This should not happen if IsApplicable was called first, but just in case
-            throw std::runtime_error("Unsupported data type for 3D Channel Last Forward Convolution");
+            MIOPEN_THROW("Unsupported data type for 3D Channel Last Forward Convolution");
         }
     };
 
