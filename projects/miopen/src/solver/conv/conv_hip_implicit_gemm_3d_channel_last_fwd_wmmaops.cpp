@@ -78,6 +78,61 @@ using MemoryOpSet =
 using MemoryOpAtomicAdd = std::integral_constant<ck_tile::memory_operation_enum,
                                                  ck_tile::memory_operation_enum::atomic_add>;
 
+// Base configuration struct following CK tile examples
+struct ConvConfigBase
+{
+    static constexpr ck_tile::index_t VectorSizeA = 4;
+    static constexpr ck_tile::index_t VectorSizeB = 8;
+    static constexpr ck_tile::index_t VectorSizeC = 8;
+
+    static constexpr int kBlockPerCu                = 1;
+    static constexpr auto Scheduler                 = ck_tile::GemmPipelineScheduler::Intrawave;
+    static constexpr ck_tile::GemmPipeline Pipeline = ck_tile::GemmPipeline::COMPUTE_V3;
+    static constexpr ck_tile::index_t NumWaveGroups = 1;
+
+    static constexpr ck_tile::index_t NumGroupsToMerge = 1;
+};
+
+// Pipeline type traits following CK tile examples
+template <ck_tile::GemmPipeline PipelineId>
+struct PipelineTypeTraits;
+
+template <>
+struct PipelineTypeTraits<ck_tile::GemmPipeline::MEMORY>
+{
+    template <typename PipelineProblem>
+    using GemmPipeline = ck_tile::GemmPipelineAgBgCrMem<PipelineProblem>;
+    template <typename PipelineProblem>
+    using UniversalGemmPipeline = ck_tile::BaseGemmPipelineAgBgCrMem<PipelineProblem>;
+};
+
+template <>
+struct PipelineTypeTraits<ck_tile::GemmPipeline::COMPUTE_V3>
+{
+    template <typename PipelineProblem>
+    using GemmPipeline = ck_tile::GemmPipelineAgBgCrCompV3<PipelineProblem>;
+    template <typename PipelineProblem>
+    using UniversalGemmPipeline = ck_tile::BaseGemmPipelineAgBgCrCompV3<PipelineProblem>;
+};
+
+template <>
+struct PipelineTypeTraits<ck_tile::GemmPipeline::COMPUTE_V4>
+{
+    template <typename PipelineProblem>
+    using GemmPipeline = ck_tile::GemmPipelineAgBgCrCompV4<PipelineProblem>;
+    template <typename PipelineProblem>
+    using UniversalGemmPipeline = ck_tile::BaseGemmPipelineAgBgCrCompV4<PipelineProblem>;
+};
+
+template <>
+struct PipelineTypeTraits<ck_tile::GemmPipeline::COMPUTE_V5>
+{
+    template <typename PipelineProblem>
+    using GemmPipeline = ck_tile::GemmPipelineAgBgCrCompV5<PipelineProblem>;
+    template <typename PipelineProblem>
+    using UniversalGemmPipeline = ck_tile::BaseGemmPipelineAgBgCrCompV5<PipelineProblem>;
+};
+
 // Structure to hold arguments for the Composable Kernel
 template <typename DataType>
 struct CKArgs3DChannelLastFwd
