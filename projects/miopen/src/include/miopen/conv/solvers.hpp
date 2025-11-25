@@ -4635,7 +4635,7 @@ struct ConvHipImplicitGemm3DChannelLastFwdWmmaops final
     /// \ref igemm_get_wti_magic_number
     float GetWti(const ExecutionContext& ctx, const miopen::conv::ProblemDescription&) const override
     {
-        return 0.001f;
+        return 0.9f;
     };
 
     MIOPEN_INTERNALS_EXPORT size_t GetWorkspaceSize(
