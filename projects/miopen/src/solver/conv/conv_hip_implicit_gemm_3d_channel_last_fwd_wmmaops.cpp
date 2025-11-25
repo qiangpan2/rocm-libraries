@@ -346,7 +346,9 @@ bool ConvHipImplicitGemm3DChannelLastFwdWmmaops::IsApplicable(
         return false;
     }
 
-    // Additional checks can be added here based on specific requirements
+    // Note: Vector size alignment will be checked dynamically at runtime
+    // We provide multiple configurations with different vector sizes for compatibility
+    // The actual configuration selection happens in GetSolution based on C and K values
 
     return true;
 }
@@ -419,9 +421,108 @@ struct MIOPENConvConfig3D : public ConvConfigBase
     static constexpr int kBlockPerCu = 2;
 };
 
-// Helper function to convert miopen data type to CK tile data type and run the kernel
+// Alternative configuration with smaller vector sizes for better compatibility
+template <typename PrecType>
+struct MIOPENConvConfig3D_Small : public ConvConfigBase
+{
+    // Smaller vector sizes for cases where C/K are not divisible by 8
+    static constexpr ck_tile::index_t VectorSizeA = 4;
+    static constexpr ck_tile::index_t VectorSizeB = 4;
+    static constexpr ck_tile::index_t VectorSizeC = 4;
+
+    // Tile dimensions
+    static constexpr ck_tile::index_t M_Tile = 128;
+    static constexpr ck_tile::index_t N_Tile = 128;
+    static constexpr ck_tile::index_t K_Tile = 64 / sizeof(PrecType);
+
+    // Warp-level dimensions
+    static constexpr ck_tile::index_t M_Warp = 4;
+    static constexpr ck_tile::index_t N_Warp = 2;
+    static constexpr ck_tile::index_t K_Warp = 1;
+
+    // Warp tile dimensions
+    static constexpr ck_tile::index_t M_Warp_Tile = 16;
+    static constexpr ck_tile::index_t N_Warp_Tile = 16;
+    static constexpr ck_tile::index_t K_Warp_Tile = 16;
+
+    // Pipeline configuration
+    static constexpr bool DoubleSmemBuffer = false;
+    static constexpr ck_tile::GemmPipeline Pipeline = ck_tile::GemmPipeline::COMPUTE_V3;
+    static constexpr auto Scheduler = ck_tile::GemmPipelineScheduler::Intrawave;
+    static constexpr ck_tile::index_t NumWaveGroups = 1;
+    static constexpr ck_tile::index_t NumGroupsToMerge = 1;
+    
+    // Block occupancy
+    static constexpr int kBlockPerCu = 2;
+};
+
+// Minimal vector size configuration for maximum compatibility
+template <typename PrecType>
+struct MIOPENConvConfig3D_Minimal : public ConvConfigBase
+{
+    // Minimal vector sizes for maximum compatibility
+    static constexpr ck_tile::index_t VectorSizeA = 1;
+    static constexpr ck_tile::index_t VectorSizeB = 1;
+    static constexpr ck_tile::index_t VectorSizeC = 1;
+
+    // Tile dimensions
+    static constexpr ck_tile::index_t M_Tile = 128;
+    static constexpr ck_tile::index_t N_Tile = 128;
+    static constexpr ck_tile::index_t K_Tile = 64 / sizeof(PrecType);
+
+    // Warp-level dimensions
+    static constexpr ck_tile::index_t M_Warp = 4;
+    static constexpr ck_tile::index_t N_Warp = 2;
+    static constexpr ck_tile::index_t K_Warp = 1;
+
+    // Warp tile dimensions
+    static constexpr ck_tile::index_t M_Warp_Tile = 16;
+    static constexpr ck_tile::index_t N_Warp_Tile = 16;
+    static constexpr ck_tile::index_t K_Warp_Tile = 16;
+
+    // Pipeline configuration
+    static constexpr bool DoubleSmemBuffer = false;
+    static constexpr ck_tile::GemmPipeline Pipeline = ck_tile::GemmPipeline::COMPUTE_V3;
+    static constexpr auto Scheduler = ck_tile::GemmPipelineScheduler::Intrawave;
+    static constexpr ck_tile::index_t NumWaveGroups = 1;
+    static constexpr ck_tile::index_t NumGroupsToMerge = 1;
+    
+    // Block occupancy
+    static constexpr int kBlockPerCu = 2;
+};
+
+// Helper function to select appropriate configuration based on problem dimensions
 template<typename CKDataType>
 auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChannelLastFwd<CKDataType>& ck_args) {
+    // Get dimensions
+    const auto G = ProblemInterpreter::GetGroupCountG(problem);
+    const auto C1 = ProblemInterpreter::GetInputChannelC(problem);
+    const auto K1 = ProblemInterpreter::GetOutputChannelK(problem);
+    const auto C = C1 / G;  // Input channels per group
+    const auto K = K1 / G;  // Output channels per group
+
+    // Select configuration based on channel divisibility
+    // Try to use the largest vector size possible for better performance
+    if(C % 8 == 0 && K % 8 == 0)
+    {
+        // Use default configuration with VectorSize 8
+        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D<CKDataType>>(problem, ck_args);
+    }
+    else if(C % 4 == 0 && K % 4 == 0)
+    {
+        // Use small configuration with VectorSize 4
+        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D_Small<CKDataType>>(problem, ck_args);
+    }
+    else
+    {
+        // Use minimal configuration with VectorSize 1 for maximum compatibility
+        return CreateKernelInvokerWithConfig<CKDataType, MIOPENConvConfig3D_Minimal<CKDataType>>(problem, ck_args);
+    }
+}
+
+// Helper function to convert miopen data type to CK tile data type and run the kernel
+template<typename CKDataType, typename ConvConfig>
+auto CreateKernelInvokerWithConfig(const ProblemDescription& problem, const CKArgs3DChannelLastFwd<CKDataType>& ck_args) {
     return [=](const Handle& handle, const AnyInvokeParams& primitive_params) {
         const auto& data_ctx = primitive_params.CastTo<miopen::conv::DataInvokeParams>();
 
@@ -434,9 +535,6 @@ auto CreateKernelInvoker(const ProblemDescription& problem, const CKArgs3DChanne
 
         // Create a stream_config object for CK Tile
         ck_tile::stream_config ck_stream_config{handle.GetStream(), handle.IsProfilingEnabled()};
-
-        // Use the configuration struct for parameters
-        using ConvConfig = MIOPENConvConfig3D<DataType>;
 
         // Define types matching the example
         using InDataType = DataType;
