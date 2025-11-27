@@ -2,6 +2,7 @@
 export HIP_VISIBLE_DEVICES=1
 export PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/rocm/opencl/bin:/opt/rocm/hip/bin:/opt/rocm/hcc/bin:/opt/rocm/bin:/opt/conda/envs/py_3.12/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;
 export DEPS_PREFIX="${HOME}/miopen-deps"
+export GPU_TARGETS="gfx1100;gfx1201"
 
 # 配置 CMake with proper GPU target flags
 echo "Configuring CMake..."
@@ -12,6 +13,7 @@ cmake -B build \
     -DMIOPEN_USE_COMPOSABLEKERNEL=ON \
     -DMIOPEN_USE_CKTILE_COMPOSABLEKERNEL=ON \
     -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++ \
+    -DGPU_TARGETS="${GPU_TARGETS}" \
     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
     -DBUILD_TESTING=ON \
