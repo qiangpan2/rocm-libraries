@@ -2,13 +2,12 @@
 export HIP_VISIBLE_DEVICES=1
 export PATH=/opt/ompi/bin:/opt/ucx/bin:/opt/cache/bin:/opt/rocm/llvm/bin:/opt/rocm/opencl/bin:/opt/rocm/hip/bin:/opt/rocm/hcc/bin:/opt/rocm/bin:/opt/conda/envs/py_3.12/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin;
 export DEPS_PREFIX="${HOME}/miopen-deps"
-export MIOPEN_PREFIX="${HOME}/miopen-install"
 
 # 配置 CMake with proper GPU target flags
 echo "Configuring CMake..."
 cmake -B build \
     -DCMAKE_PREFIX_PATH="${DEPS_PREFIX}" \
-    -DCMAKE_INSTALL_PREFIX="${MIOPEN_PREFIX}" \
+    -DCMAKE_INSTALL_PREFIX="${DEPS_PREFIX}" \
     -DMIOPEN_BACKEND=HIP \
     -DMIOPEN_USE_COMPOSABLEKERNEL=ON \
     -DMIOPEN_USE_CKTILE_COMPOSABLEKERNEL=ON \
@@ -16,9 +15,9 @@ cmake -B build \
     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
     -DBUILD_TESTING=ON \
-    -DCMAKE_CXX_FLAGS="-I/root/miopen-deps/include" \
-    -DCMAKE_HIP_FLAGS="-I/root/miopen-deps/include" \
-    -G Ninja --debug-output > cmake_config.log 2>&1
+    -DCMAKE_CXX_FLAGS="-I${DEPS_PREFIX}/include" \
+    -DCMAKE_HIP_FLAGS="-I${DEPS_PREFIX}/include" \
+    -G Ninja > cmake_config.log 2>&1
 
 # 构建项目
 cmake --build build -j8 > build.log 2>&1
