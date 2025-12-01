@@ -775,6 +775,29 @@ size_t ConvHipImplicitGemm3DChannelLastFwdWmmaops::GetWorkspaceSize(
     return 0;
 }
 
+// Explicit template instantiation for multi-architecture support
+#define INSTANTIATE_CONV_3D_KERNELS(DataType) \
+    template Invoker CreateKernelInvokerWithConfig<DataType, MIOPENConvConfig3D<DataType>>( \
+        const ProblemDescription&, const CKArgs3DChannelLastFwd<DataType>&); \
+    template Invoker CreateKernelInvokerWithConfig<DataType, MIOPENConvConfig3D_Small<DataType>>( \
+        const ProblemDescription&, const CKArgs3DChannelLastFwd<DataType>&); \
+    template Invoker CreateKernelInvokerWithConfig<DataType, MIOPENConvConfig3D_Minimal<DataType>>( \
+        const ProblemDescription&, const CKArgs3DChannelLastFwd<DataType>&);
+
+// Force instantiation for gfx11
+#if defined(__gfx11__)
+INSTANTIATE_CONV_3D_KERNELS(ck_tile::half_t)
+INSTANTIATE_CONV_3D_KERNELS(ck_tile::bf16_t)
+#endif
+
+// Force instantiation for gfx12
+#if defined(__gfx12__)
+INSTANTIATE_CONV_3D_KERNELS(ck_tile::half_t)
+INSTANTIATE_CONV_3D_KERNELS(ck_tile::bf16_t)
+#endif
+
+#undef INSTANTIATE_CONV_3D_KERNELS
+
 } // namespace conv
 } // namespace solver
 } // namespace miopen
