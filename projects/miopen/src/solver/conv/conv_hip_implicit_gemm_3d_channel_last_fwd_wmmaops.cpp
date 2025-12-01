@@ -39,6 +39,8 @@
 #include <miopen/solver/implicitgemm_ck_tile_util.hpp>
 // Include specific CK tile headers if needed beyond what's in the utility
 #include <miopen/solver/grouped_convolution_ck_tiles_utils.hpp>
+// Include architecture tags for multi-arch support
+#include <ck_tile/core/arch/arch.hpp>
 #endif
 
 MIOPEN_DECLARE_ENV_VAR_BOOL(MIOPEN_DEBUG_3D_CONV_IMPLICIT_GEMM_HIP_CHANNEL_LAST_FWD_WMMAOPS)
@@ -666,9 +668,22 @@ Invoker CreateKernelInvokerWithConfig(const ProblemDescription& problem, const C
                               << ", Vector size C: " << ConvEpilogue::GetVectorSizeC() << std::endl;
                 }
 
-                ave_time = ck_tile::launch_kernel(ck_stream_config,
-                                                  ck_tile::make_kernel<ConvConfig::kBlockPerCu>(
-                                                      Kernel{}, grids, blocks, 0, kargs));
+                // Select architecture tag based on device name for multi-arch support
+                const auto device_name = handle.GetDeviceName();
+                if(device_name.find("gfx12") == 0) {
+                    ave_time = ck_tile::launch_kernel(ck_stream_config,
+                                                      ck_tile::make_kernel<ConvConfig::kBlockPerCu, ck_tile::gfx12_t>(
+                                                          Kernel{}, grids, blocks, 0, kargs));
+                } else if(device_name.find("gfx11") == 0) {
+                    ave_time = ck_tile::launch_kernel(ck_stream_config,
+                                                      ck_tile::make_kernel<ConvConfig::kBlockPerCu, ck_tile::gfx11_t>(
+                                                          Kernel{}, grids, blocks, 0, kargs));
+                } else {
+                    // Fallback for other architectures
+                    ave_time = ck_tile::launch_kernel(ck_stream_config,
+                                                      ck_tile::make_kernel<ConvConfig::kBlockPerCu>(
+                                                          Kernel{}, grids, blocks, 0, kargs));
+                }
                 return ave_time;
             };
 
