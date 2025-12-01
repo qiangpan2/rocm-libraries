@@ -353,7 +353,18 @@ if(MIOPEN_USE_CKTILE_COMPOSABLEKERNEL)
  list(APPEND MIOpen_Source
         solver/conv/conv_hip_implicit_gemm_3d_channel_last_fwd_wmmaops.cpp
 
-    ) 
+    )
+    
+    # Multi-architecture support for CK Tile solvers (header-only, requires compile-time instantiation)
+    if(DEFINED GPU_TARGETS AND NOT GPU_TARGETS STREQUAL "")
+        set(_ck_flags "")
+        foreach(_arch IN LISTS GPU_TARGETS)
+            string(APPEND _ck_flags " --offload-arch=${_arch}")
+        endforeach()
+        set_source_files_properties(solver/conv/conv_hip_implicit_gemm_3d_channel_last_fwd_wmmaops.cpp
+            PROPERTIES COMPILE_FLAGS "${_ck_flags}")
+        message(STATUS "CK Tile: Multi-arch compile flags applied: ${_ck_flags}")
+    endif()
 endif()
 
 if(MIOPEN_ENABLE_AI_KERNEL_TUNING OR MIOPEN_ENABLE_AI_IMMED_MODE_FALLBACK)
@@ -911,6 +922,14 @@ if(MIOPEN_USE_CKTILE_COMPOSABLEKERNEL)
     if(composable_kernel_ck_tile_FOUND)
         set(MIOPEN_CK_TILE_LINK_FLAGS ${composable_kernel_ck_tile_INCLUDE_DIRS})
         target_include_directories(MIOpen PRIVATE ${MIOPEN_CK_TILE_LINK_FLAGS})
+    endif()
+    
+    # Multi-architecture link flags for CK Tile solvers
+    if(DEFINED GPU_TARGETS AND NOT GPU_TARGETS STREQUAL "")
+        foreach(_arch IN LISTS GPU_TARGETS)
+            target_link_options(MIOpen PRIVATE "--offload-arch=${_arch}")
+        endforeach()
+        message(STATUS "CK Tile: Multi-arch link flags applied for: ${GPU_TARGETS}")
     endif()
 endif()
 
