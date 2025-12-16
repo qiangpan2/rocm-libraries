@@ -13,9 +13,9 @@
 #include "ck_tile/ops/grouped_convolution.hpp"
 
 template <typename InDataType, typename WeiDataType, typename AccDataType, typename OutDataType>
-auto calculate_rtol_atol(const ck_tile::index_t GemmK,
-                         const ck_tile::index_t kbatch,
-                         const float max_accumulated_value)
+inline auto calculate_rtol_atol(const ck_tile::index_t GemmK,
+                                const ck_tile::index_t kbatch,
+                                const float max_accumulated_value)
 {
     using ComputeType =
         std::conditional_t<sizeof(InDataType) < sizeof(WeiDataType), InDataType, WeiDataType>;
@@ -34,13 +34,13 @@ auto calculate_rtol_atol(const ck_tile::index_t GemmK,
     return ck_tile::make_tuple(std::max(rtol, rtol_split_k), std::max(atol, atol_split_k));
 }
 
-ck_tile::index_t fill_spatial_dimensions(std::vector<ck_tile::index_t>& filter_spatial_lengths,
-                                         std::vector<ck_tile::index_t>& image_spatial_lengths,
-                                         std::vector<ck_tile::index_t>& strides,
-                                         std::vector<ck_tile::index_t>& dilations,
-                                         std::vector<ck_tile::index_t>& lpads,
-                                         std::vector<ck_tile::index_t>& rpads,
-                                         ck_tile::ArgParser& arg_parser)
+inline ck_tile::index_t fill_spatial_dimensions(std::vector<ck_tile::index_t>& filter_spatial_lengths,
+                                                std::vector<ck_tile::index_t>& image_spatial_lengths,
+                                                std::vector<ck_tile::index_t>& strides,
+                                                std::vector<ck_tile::index_t>& dilations,
+                                                std::vector<ck_tile::index_t>& lpads,
+                                                std::vector<ck_tile::index_t>& rpads,
+                                                ck_tile::ArgParser& arg_parser)
 {
 
     constexpr ck_tile::index_t non_sp_dims = 3;
@@ -79,7 +79,7 @@ ck_tile::index_t fill_spatial_dimensions(std::vector<ck_tile::index_t>& filter_s
     return n_dim_sp;
 }
 
-auto create_args(int argc, char* argv[])
+inline auto create_args(int argc, char* argv[])
 {
     ck_tile::ArgParser arg_parser;
     arg_parser.insert("g", "2", "group dimension")
