@@ -351,6 +351,7 @@ set( MIOpen_Source
 
 if(MIOPEN_USE_CKTILE_COMPOSABLEKERNEL)
  list(APPEND MIOpen_Source
+        solver/conv/conv_hip_implicit_gemm_2d_channel_last_fwd_wmmaops.cpp
         solver/conv/conv_hip_implicit_gemm_3d_channel_last_fwd_wmmaops.cpp
 
     )
@@ -361,6 +362,8 @@ if(MIOPEN_USE_CKTILE_COMPOSABLEKERNEL)
         foreach(_arch IN LISTS GPU_TARGETS)
             string(APPEND _ck_flags " --offload-arch=${_arch}")
         endforeach()
+        set_source_files_properties(solver/conv/conv_hip_implicit_gemm_2d_channel_last_fwd_wmmaops.cpp
+            PROPERTIES COMPILE_FLAGS "${_ck_flags}")
         set_source_files_properties(solver/conv/conv_hip_implicit_gemm_3d_channel_last_fwd_wmmaops.cpp
             PROPERTIES COMPILE_FLAGS "${_ck_flags}")
         message(STATUS "CK Tile: Multi-arch compile flags applied: ${_ck_flags}")
