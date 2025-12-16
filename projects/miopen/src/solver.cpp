@@ -729,6 +729,10 @@ inline SolverRegistrar::SolverRegistrar(IdRegistryData& registry)
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_CKTILE_COMPOSABLEKERNEL
     RegisterWithSolver(registry,
                        ++id,
+                       conv::ConvHipImplicitGemm2DChannelLastFwdWmmaops{},
+                       miopenConvolutionAlgoImplicitGEMM);
+    RegisterWithSolver(registry,
+                       ++id,
                        conv::ConvHipImplicitGemm3DChannelLastFwdWmmaops{},
                        miopenConvolutionAlgoImplicitGEMM);
 #endif

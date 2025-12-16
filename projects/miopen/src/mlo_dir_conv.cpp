@@ -73,7 +73,8 @@ static auto GetDirectSolvers()
 {
     return miopen::solver::SolverContainer<
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_CKTILE_COMPOSABLEKERNEL
-                                           // 3D channel-last solver before naive for higher priority
+                                           // 2D/3D channel-last solvers before naive for higher priority
+                                           miopen::solver::conv::ConvHipImplicitGemm2DChannelLastFwdWmmaops,
                                            miopen::solver::conv::ConvHipImplicitGemm3DChannelLastFwdWmmaops,
 #endif
                                            miopen::solver::conv::ConvAsm3x3U,
@@ -95,7 +96,8 @@ static auto GetImplicitGemmSolvers()
 {
     return miopen::solver::SolverContainer<
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_CKTILE_COMPOSABLEKERNEL
-        // Move 3D channel-last solver to front for higher priority
+        // Move 2D/3D channel-last solvers to front for higher priority
+        miopen::solver::conv::ConvHipImplicitGemm2DChannelLastFwdWmmaops,
         miopen::solver::conv::ConvHipImplicitGemm3DChannelLastFwdWmmaops,
 #endif
         miopen::solver::conv::ConvHipImplicitGemmForwardV4R5Xdlops,

@@ -691,11 +691,11 @@ Invoker CreateKernelInvokerWithConfig(const ProblemDescription& problem, const C
         const auto RunSplitk = [&](const auto has_hot_loop_, const auto tail_number_) {
             if(host_args.k_batch == 1)
             {
-                Run.template operator()(has_hot_loop_, tail_number_, MemoryOpSet{});
+                ave_time = Run.template operator()(has_hot_loop_, tail_number_, MemoryOpSet{});
             }
             else
             {
-                Run.template operator()(has_hot_loop_, tail_number_, MemoryOpAtomicAdd{});
+                ave_time = Run.template operator()(has_hot_loop_, tail_number_, MemoryOpAtomicAdd{});
             }
         };
 

@@ -30,6 +30,8 @@ LD_LIBRARY_PATH=/workspace/repo/rocm-libraries/projects/miopen/build/lib:$LD_LIB
 
 export MIOPEN_DEBUG_3D_CONV_IMPLICIT_GEMM_HIP_CHANNEL_LAST_FWD_WMMAOPS=1
 export MIOPEN_DEBUG_CONV_DIRECT_NAIVE_CONV_FWD=0
+# 强制只使用指定的 solver，跳过其他 solver 的评估
+export MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvHipImplicitGemm3DChannelLastFwdWmmaops
 export MIOPEN_ENABLE_LOGGING=1
 export MIOPEN_ENABLE_LOGGING_CMD=1
 export MIOPEN_LOG_LEVEL=6

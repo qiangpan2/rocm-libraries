@@ -4569,6 +4569,84 @@ private:
 };
 
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_CKTILE_COMPOSABLEKERNEL
+struct PerformanceConfigConv2DChannelLastFwdWmmaops
+    : PerfConfigBase<PerformanceConfigConv2DChannelLastFwdWmmaops>
+{
+    int instance_id = 0; // ID of the selected CK instance
+
+    PerformanceConfigConv2DChannelLastFwdWmmaops(int idx, std::string kernl_id)
+        : instance_id(idx)
+    {
+    }
+
+    PerformanceConfigConv2DChannelLastFwdWmmaops() = default;
+
+    explicit PerformanceConfigConv2DChannelLastFwdWmmaops(bool)
+        : PerformanceConfigConv2DChannelLastFwdWmmaops(0, "")
+    {
+    }
+    
+    template <class Self, class F>
+    static void Visit(Self&& self, F f)
+    {
+        f(self.instance_id, "instance_id");
+    }
+
+    MIOPEN_INTERNALS_EXPORT void HeuristicInit(const miopen::conv::ProblemDescription&);
+    MIOPEN_INTERNALS_EXPORT bool SetNextValue(const miopen::conv::ProblemDescription&);
+    MIOPEN_INTERNALS_EXPORT bool IsValidValue() const;
+    bool IsValid(const ExecutionContext&, const miopen::conv::ProblemDescription& problem) const
+    {
+        return IsValid(problem);
+    }
+    MIOPEN_INTERNALS_EXPORT bool IsValid(const miopen::conv::ProblemDescription&) const;
+    MIOPEN_INTERNALS_EXPORT bool
+    operator==(const PerformanceConfigConv2DChannelLastFwdWmmaops& other) const;
+};
+
+struct ConvHipImplicitGemm2DChannelLastFwdWmmaops final
+    : ConvTunableSolver<PerformanceConfigConv2DChannelLastFwdWmmaops>
+{
+    const std::string& SolverDbId() const override
+    {
+        return GetSolverDbId<ConvHipImplicitGemm2DChannelLastFwdWmmaops>();
+    }
+
+    MIOPEN_INTERNALS_EXPORT bool
+    IsApplicable(const ExecutionContext&, const miopen::conv::ProblemDescription&) const override;
+    bool IsDynamic() const override { return true; }
+    
+    /// Tunable solver methods
+    MIOPEN_INTERNALS_EXPORT PerformanceConfigConv2DChannelLastFwdWmmaops
+    GetDefaultPerformanceConfig(const ExecutionContext&,
+                                const miopen::conv::ProblemDescription&) const override;
+    MIOPEN_INTERNALS_EXPORT bool
+    IsValidPerformanceConfig(const ExecutionContext&,
+                             const miopen::conv::ProblemDescription&,
+                             const PerformanceConfigConv2DChannelLastFwdWmmaops&) const override;
+    MIOPEN_INTERNALS_EXPORT PerformanceConfigConv2DChannelLastFwdWmmaops
+    Search(const ExecutionContext&,
+           const miopen::conv::ProblemDescription&,
+           const AnyInvokeParams& invoke_ctx) const override;
+    MIOPEN_INTERNALS_EXPORT ConvSolution
+    GetSolution(const ExecutionContext&,
+                const miopen::conv::ProblemDescription&,
+                const PerformanceConfigConv2DChannelLastFwdWmmaops&) const override;
+    /// \ref igemm_get_wti_magic_number
+    float GetWti(const ExecutionContext& ctx, const miopen::conv::ProblemDescription&) const override
+    {
+        return 0.9f;
+    };
+
+    MIOPEN_INTERNALS_EXPORT size_t GetWorkspaceSize(
+        const ExecutionContext&, const miopen::conv::ProblemDescription&) const override;
+    bool MayNeedWorkspace() const override { return false; }
+
+private:
+    template <typename DataType>
+    bool CheckCKApplicability(const miopen::conv::ProblemDescription&) const;
+};
+
 struct PerformanceConfigConv3DChannelLastFwdWmmaops
     : PerfConfigBase<PerformanceConfigConv3DChannelLastFwdWmmaops>
 {
@@ -4640,7 +4718,7 @@ struct ConvHipImplicitGemm3DChannelLastFwdWmmaops final
 
     MIOPEN_INTERNALS_EXPORT size_t GetWorkspaceSize(
         const ExecutionContext&, const miopen::conv::ProblemDescription&) const override;
-    bool MayNeedWorkspace() const override { return true; }
+    bool MayNeedWorkspace() const override { return false; }
 
 private:
     template <typename DataType>
