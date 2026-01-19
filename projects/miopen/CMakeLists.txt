@@ -269,6 +269,7 @@ endif()
 
 # Depend on Composable Kernels
 option(MIOPEN_USE_COMPOSABLEKERNEL "Enable MIOpen to use composable kernels for various operations" On)
+option(MIOPEN_USE_CKTILE_COMPOSABLEKERNEL "Enable MIOpen to use CK tile composable kernels" OFF)
 if(MIOPEN_BACKEND_OPENCL)
     set(MIOPEN_USE_COMPOSABLEKERNEL OFF)
 endif()
