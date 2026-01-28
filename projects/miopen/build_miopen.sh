@@ -16,7 +16,7 @@ cmake -B build \
     -DBUILD_TESTING=OFF \
     -G Ninja > cmake_config.log 2>&1
 
-cmake --build build -j8 > build.log 2>&1
+cmake --build build -j8 2>&1 | tee build.log
 
 export MIOPEN_DEBUG_CONV_DIRECT_NAIVE_CONV_FWD=0
 
