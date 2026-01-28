@@ -736,6 +736,13 @@ inline SolverRegistrar::SolverRegistrar(IdRegistryData& registry)
                        conv::ConvHipImplicitGemm3DChannelLastFwdWmmaops{},
                        miopenConvolutionAlgoImplicitGEMM);
 #endif
+#if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
+    // DL Solver for FP32 channel-last 2D grouped convolution (works on all GPUs)
+    RegisterWithSolver(registry,
+                       ++id,
+                       conv::ConvHipImplicitGemm2DGroupedFwdDlops{},
+                       miopenConvolutionAlgoImplicitGEMM);
+#endif
     // IMPORTANT: New solvers should be added to the end of the function, and don't leave a white
     // space between this comment and the newly registered solver(s)!
 }

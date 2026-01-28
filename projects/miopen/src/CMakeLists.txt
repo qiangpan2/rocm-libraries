@@ -389,6 +389,8 @@ if(MIOPEN_USE_COMPOSABLEKERNEL)
     list(APPEND MIOpen_Source kernels/ck_header_only/layernorm/fwd/device_layernorm2d_fwd_f32_instance.cpp)
     list(APPEND MIOpen_Source kernels/ck_header_only/layernorm/fwd/device_layernorm4d_fwd_f16_instance.cpp)
     list(APPEND MIOpen_Source kernels/ck_header_only/layernorm/fwd/device_layernorm4d_fwd_f32_instance.cpp)
+    # DL Solver for FP32 channel-last 2D grouped convolution (uses CK DL instances)
+    list(APPEND MIOpen_Source solver/conv/conv_hip_implicit_gemm_2d_grouped_fwd_dlops.cpp)
 endif()
 
 if( MIOPEN_BACKEND MATCHES "OpenCL" OR MIOPEN_BACKEND STREQUAL "HIPOC" OR MIOPEN_BACKEND STREQUAL "HIP" OR MIOPEN_BACKEND STREQUAL "HIPNOGPU")

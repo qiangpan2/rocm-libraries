@@ -5078,6 +5078,87 @@ private:
     size_t GetCKMaxWorkspaceSize(const miopen::conv::ProblemDescription& problem) const;
 };
 
+// DL Solver for FP32 channel-last 2D grouped convolution forward
+struct PerformanceConfigHipImplicitGemm2DGroupedFwdDlops
+    : PerfConfigBase<PerformanceConfigHipImplicitGemm2DGroupedFwdDlops>
+{
+    int index = 0;
+    std::string kernel_id;
+    std::vector<std::string> valid_kernels;
+
+    PerformanceConfigHipImplicitGemm2DGroupedFwdDlops(int idx, const std::string& id)
+        : index(idx), kernel_id(id)
+    {
+    }
+
+    PerformanceConfigHipImplicitGemm2DGroupedFwdDlops() = default;
+
+    explicit PerformanceConfigHipImplicitGemm2DGroupedFwdDlops(bool)
+        : PerformanceConfigHipImplicitGemm2DGroupedFwdDlops(0, "")
+    {
+    }
+
+    template <class Self, class F>
+    static void Visit(Self&& self, F f)
+    {
+        f(self.kernel_id, "kernel_id");
+    }
+
+    MIOPEN_INTERNALS_EXPORT void HeuristicInit(const ExecutionContext&,
+                                               const miopen::conv::ProblemDescription&);
+    MIOPEN_INTERNALS_EXPORT bool SetNextValue(const miopen::conv::ProblemDescription&);
+    MIOPEN_INTERNALS_EXPORT bool IsValidValue() const;
+    MIOPEN_INTERNALS_EXPORT bool IsValid(const ExecutionContext&,
+                                         const miopen::conv::ProblemDescription&) const;
+    MIOPEN_INTERNALS_EXPORT bool
+    operator==(const PerformanceConfigHipImplicitGemm2DGroupedFwdDlops& other) const;
+
+private:
+    MIOPEN_INTERNALS_EXPORT void Init(const miopen::conv::ProblemDescription&);
+    MIOPEN_INTERNALS_EXPORT bool CheckIsSupportCKArgs(const miopen::conv::ProblemDescription&) const;
+};
+
+struct ConvHipImplicitGemm2DGroupedFwdDlops final
+    : ConvTunableSolver<PerformanceConfigHipImplicitGemm2DGroupedFwdDlops>
+{
+    const std::string& SolverDbId() const override
+    {
+        return GetSolverDbId<ConvHipImplicitGemm2DGroupedFwdDlops>();
+    }
+
+    MIOPEN_INTERNALS_EXPORT bool
+    IsApplicable(const ExecutionContext&, const miopen::conv::ProblemDescription&) const override;
+    bool IsDynamic() const override { return true; }
+
+    MIOPEN_INTERNALS_EXPORT PerformanceConfigHipImplicitGemm2DGroupedFwdDlops
+    GetDefaultPerformanceConfig(const ExecutionContext&,
+                                const miopen::conv::ProblemDescription&) const override;
+    MIOPEN_INTERNALS_EXPORT bool
+    IsValidPerformanceConfig(const ExecutionContext&,
+                             const miopen::conv::ProblemDescription&,
+                             const PerformanceConfigHipImplicitGemm2DGroupedFwdDlops&) const override;
+    MIOPEN_INTERNALS_EXPORT PerformanceConfigHipImplicitGemm2DGroupedFwdDlops
+    Search(const ExecutionContext&,
+           const miopen::conv::ProblemDescription&,
+           const AnyInvokeParams& invoke_ctx) const override;
+    MIOPEN_INTERNALS_EXPORT ConvSolution
+    GetSolution(const ExecutionContext&,
+                const miopen::conv::ProblemDescription&,
+                const PerformanceConfigHipImplicitGemm2DGroupedFwdDlops&) const override;
+
+    float GetWti(const ExecutionContext&, const miopen::conv::ProblemDescription&) const override
+    {
+        return 0.02f;
+    };
+
+    MIOPEN_INTERNALS_EXPORT size_t GetWorkspaceSize(
+        const ExecutionContext&, const miopen::conv::ProblemDescription&) const override;
+    bool MayNeedWorkspace() const override { return false; }
+
+private:
+    MIOPEN_INTERNALS_EXPORT bool CheckCKApplicability(const miopen::conv::ProblemDescription&) const;
+};
+
 } // namespace conv
 } // namespace solver
 } // namespace miopen
