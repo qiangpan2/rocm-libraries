@@ -52,28 +52,21 @@ using ProblemDescription = miopen::conv::ProblemDescription;
 
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
 
-// 2D Conv layout - same as WMMA 2D Solver (Channel Last)
-using InLayout  = ck::tensor_layout::convolution::NHWGC;
-using WeiLayout = ck::tensor_layout::convolution::GKYXC;
-using OutLayout = ck::tensor_layout::convolution::NHWGK;
-
-// Element-wise operations
-using PassThrough = ck::tensor_operation::element_wise::PassThrough;
-
 // Device operation type definition - FP32 only
+// Note: Use full type paths to avoid conflict with implicitgemm_ck_util.hpp (which defines 3D layouts)
 using DeviceOpDLFwdF32 = ck::tensor_operation::device::DeviceGroupedConvFwdMultipleABD<
-    2,          // NumDimSpatial
-    InLayout,
-    WeiLayout,
-    ck::Tuple<>,    // DsLayout (empty for no bias)
-    OutLayout,
-    float,          // InDataType
-    float,          // WeiDataType
-    ck::Tuple<>,    // DsDataType
-    float,          // OutDataType
-    PassThrough,    // InElementOp
-    PassThrough,    // WeiElementOp
-    PassThrough>;   // OutElementOp
+    2,
+    ck::tensor_layout::convolution::NHWGC,
+    ck::tensor_layout::convolution::GKYXC,
+    ck::Tuple<>,
+    ck::tensor_layout::convolution::NHWGK,
+    float,
+    float,
+    ck::Tuple<>,
+    float,
+    ck::tensor_operation::element_wise::PassThrough,
+    ck::tensor_operation::element_wise::PassThrough,
+    ck::tensor_operation::element_wise::PassThrough>;
 
 // Instance Factory - FP32 only
 using DeviceOpDLFwdF32Ptrs =
@@ -227,7 +220,6 @@ void PerformanceConfigHipImplicitGemm2DGroupedFwdDlops::HeuristicInit(
     kernel_id = "";
 
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
-    // Only FP32 is supported
     if(problem.IsFp32())
     {
         Init(problem);
@@ -266,11 +258,10 @@ bool PerformanceConfigHipImplicitGemm2DGroupedFwdDlops::IsValidValue() const
 }
 
 bool PerformanceConfigHipImplicitGemm2DGroupedFwdDlops::IsValid(
-    [[maybe_unused]] const ExecutionContext&,
+    [[maybe_unused]] const ExecutionContext& ctx,
     [[maybe_unused]] const ProblemDescription& problem) const
 {
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
-    // Only FP32 is supported
     if(problem.IsFp32())
     {
         return CheckIsSupportCKArgs(problem);
@@ -318,56 +309,36 @@ ConvHipImplicitGemm2DGroupedFwdDlops::Search(const ExecutionContext& ctx,
 }
 
 bool ConvHipImplicitGemm2DGroupedFwdDlops::IsApplicable(
-    [[maybe_unused]] const ExecutionContext& ctx,
-    [[maybe_unused]] const ProblemDescription& problem) const
+    const ExecutionContext&,
+    const ProblemDescription& problem) const
 {
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
-    // Check environment variable
     if(env::disabled(MIOPEN_DEBUG_2D_CONV_IMPLICIT_GEMM_HIP_GROUPED_FWD_DLOPS))
         return false;
-    
-    // Check for deterministic requirement
     if(problem.GetConv().attribute.deterministic)
         return false;
-    
-    // Check for non-packed tensors
     if(problem.HasNonPackedTensors())
         return false;
-    
-    // Check tensor dimensions
     if(!problem.AllTensorsDimsFitIntoInt())
         return false;
-    
-    // Check for casted tensors
     if(problem.IsTensorsCasted())
         return false;
-    
-    // Check for mixed data types
     if(problem.HasMixedDataTypes())
         return false;
-    
-    // Check direction
     if(!problem.IsDirectionForward())
         return false;
-    
-    // Check dimension (2D only)
     if(!problem.Is2d())
         return false;
-    
-    // Check layout (NHWC only)
     if(!problem.IsLayoutNHWC())
         return false;
-    
-    // FP32 only - FP16/BF16 should use WMMA/XDL solvers
     if(!problem.IsFp32())
         return false;
-    
-    // Note: We do NOT check is_ck_whitelist - DL kernels work on all GPUs!
-    
-    // Check if CK DL instances are available
+    // Note: We do NOT check is_ck_whitelist - DL kernels work on all GPUs
     return CheckCKApplicability(problem);
-#endif
+#else
+    std::ignore = problem;
     return false;
+#endif
 }
 
 ConvSolution ConvHipImplicitGemm2DGroupedFwdDlops::GetSolution(

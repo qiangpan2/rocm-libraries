@@ -22,7 +22,7 @@ cmake -B build \
     -G Ninja > cmake_config.log 2>&1
 
 # 构建项目
-cmake --build build -j8 > build.log 2>&1
+cmake --build build -j8 2>&1 | tee build.log
 
 # 3dconv solver test
 LD_LIBRARY_PATH=/workspace/repo/rocm-libraries/projects/miopen/build/lib:$LD_LIBRARY_PATH
