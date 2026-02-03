@@ -72,6 +72,16 @@ using DeviceOpDLFwdF32 = ck::tensor_operation::device::DeviceGroupedConvFwdMulti
 using DeviceOpDLFwdF32Ptrs =
     ck::tensor_operation::device::instance::DeviceOperationInstanceFactory<DeviceOpDLFwdF32>;
 
+// Force linker to include DL instances from CK library
+// Without this, the linker strips unused symbols due to --exclude-libs,ALL
+namespace {
+[[maybe_unused]] static const bool force_link_dl_instances = []() {
+    std::vector<std::unique_ptr<DeviceOpDLFwdF32>> dummy;
+    ck::tensor_operation::device::instance::add_device_grouped_conv2d_fwd_dl_nhwgc_gkyxc_nhwgk_f32_instances(dummy);
+    return true;
+}();
+} // namespace force_link
+
 namespace {
 
 // CK Arguments structure for DL FP32 forward convolution
@@ -313,7 +323,8 @@ bool ConvHipImplicitGemm2DGroupedFwdDlops::IsApplicable(
     const ProblemDescription& problem) const
 {
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
-    if(env::disabled(MIOPEN_DEBUG_2D_CONV_IMPLICIT_GEMM_HIP_GROUPED_FWD_DLOPS))
+    // Default enabled - use env var to disable if needed
+    if(!env::enabled(MIOPEN_DEBUG_2D_CONV_IMPLICIT_GEMM_HIP_GROUPED_FWD_DLOPS, true))
         return false;
     if(problem.GetConv().attribute.deterministic)
         return false;
