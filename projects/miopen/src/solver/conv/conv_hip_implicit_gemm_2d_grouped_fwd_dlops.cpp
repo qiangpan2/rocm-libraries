@@ -72,20 +72,6 @@ using DeviceOpDLFwdF32 = ck::tensor_operation::device::DeviceGroupedConvFwdMulti
 using DeviceOpDLFwdF32Ptrs =
     ck::tensor_operation::device::instance::DeviceOperationInstanceFactory<DeviceOpDLFwdF32>;
 
-// Force linker to include DL instances using asm volatile
-// This is the strongest way to prevent compiler/linker optimization
-// The --exclude-libs,ALL flag strips unused symbols, but asm volatile forces the reference
-namespace {
-struct ForceLinkDLInstances {
-    ForceLinkDLInstances() {
-        // asm volatile prevents the compiler from optimizing away this reference
-        // The "r" constraint forces the address to be loaded into a register
-        asm volatile("" : : "r"(&ck::tensor_operation::device::instance::add_device_grouped_conv2d_fwd_dl_nhwgc_gkyxc_nhwgk_f32_instances));
-    }
-};
-static ForceLinkDLInstances g_force_link_dl;
-} // namespace
-
 namespace {
 
 // CK Arguments structure for DL FP32 forward convolution
