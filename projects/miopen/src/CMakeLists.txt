@@ -908,8 +908,7 @@ if(MIOPEN_USE_COMPOSABLEKERNEL)
     if(MIOPEN_BUILD_CK )
         # the aliased target doesnt exist when we build CK inline as part of MIOPEN.  The aliased target only is not
         # global when you build it so we dont have access to it.
-        # Use --whole-archive to ensure all CK instances (including DL) are linked
-        set(MIOPEN_CK_LINK_FLAGS "-Wl,--whole-archive" device_conv_operations "-Wl,--no-whole-archive" hip::host)
+        set(MIOPEN_CK_LINK_FLAGS device_conv_operations hip::host)
 
         # The include directories also dont propagate correctly when using the non aliased targets.
         # Manually including them fixes this problem for inline builds.
@@ -919,8 +918,7 @@ if(MIOPEN_USE_COMPOSABLEKERNEL)
             ${MIOPEN_CK_LIBRARY_INCLUDE_DIR})
     else()
         # Use the aliased targets when we pull CK from /opt/rocm or other place on disc.
-        # Use --whole-archive to ensure all CK instances (including DL) are linked
-        set(MIOPEN_CK_LINK_FLAGS "-Wl,--whole-archive" composable_kernel::device_conv_operations "-Wl,--no-whole-archive" hip::host)
+        set(MIOPEN_CK_LINK_FLAGS composable_kernel::device_conv_operations hip::host)
     endif()
 endif()
 
