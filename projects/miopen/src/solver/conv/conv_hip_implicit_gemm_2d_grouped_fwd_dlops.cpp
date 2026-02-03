@@ -323,8 +323,8 @@ bool ConvHipImplicitGemm2DGroupedFwdDlops::IsApplicable(
     const ProblemDescription& problem) const
 {
 #if MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
-    // Default enabled - use env var to disable if needed
-    if(!env::enabled(MIOPEN_DEBUG_2D_CONV_IMPLICIT_GEMM_HIP_GROUPED_FWD_DLOPS, true))
+    // Default enabled - set MIOPEN_DEBUG_2D_CONV_IMPLICIT_GEMM_HIP_GROUPED_FWD_DLOPS=0 to disable
+    if(env::disabled(MIOPEN_DEBUG_2D_CONV_IMPLICIT_GEMM_HIP_GROUPED_FWD_DLOPS))
         return false;
     if(problem.GetConv().attribute.deterministic)
         return false;
