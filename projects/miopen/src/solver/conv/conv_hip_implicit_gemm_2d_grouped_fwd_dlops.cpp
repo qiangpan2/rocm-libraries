@@ -72,27 +72,18 @@ using DeviceOpDLFwdF32 = ck::tensor_operation::device::DeviceGroupedConvFwdMulti
 using DeviceOpDLFwdF32Ptrs =
     ck::tensor_operation::device::instance::DeviceOperationInstanceFactory<DeviceOpDLFwdF32>;
 
-// Force linker to include DL instances from CK library
-// The linker uses --exclude-libs,ALL which strips unused symbols from static libraries.
-// We bypass DeviceOperationInstanceFactory and directly call add_device_* to ensure linkage.
+// Force linker to include DL instances using asm volatile
+// This is the strongest way to prevent compiler/linker optimization
+// The --exclude-libs,ALL flag strips unused symbols, but asm volatile forces the reference
 namespace {
-
-// This function directly populates DL instances, ensuring the linker includes them.
-// Using __attribute__((noinline)) prevents the compiler from inlining and optimizing away.
-__attribute__((noinline))
-std::vector<std::unique_ptr<DeviceOpDLFwdF32>>& GetDLFwdF32Instances()
-{
-    static std::vector<std::unique_ptr<DeviceOpDLFwdF32>> instances;
-    static bool initialized = false;
-    if(!initialized)
-    {
-        // Direct call to DL instance registration function
-        ck::tensor_operation::device::instance::add_device_grouped_conv2d_fwd_dl_nhwgc_gkyxc_nhwgk_f32_instances(instances);
-        initialized = true;
+struct ForceLinkDLInstances {
+    ForceLinkDLInstances() {
+        // asm volatile prevents the compiler from optimizing away this reference
+        // The "r" constraint forces the address to be loaded into a register
+        asm volatile("" : : "r"(&ck::tensor_operation::device::instance::add_device_grouped_conv2d_fwd_dl_nhwgc_gkyxc_nhwgk_f32_instances));
     }
-    return instances;
-}
-
+};
+static ForceLinkDLInstances g_force_link_dl;
 } // namespace
 
 namespace {
@@ -210,22 +201,11 @@ struct CKArgsDL
 
 } // namespace
 
-// Initialize valid kernel IDs for FP32 using forced DL instances
+// Initialize valid kernel IDs for FP32
 void PerformanceConfigHipImplicitGemm2DGroupedFwdDlops::Init(const ProblemDescription& problem)
 {
     if(valid_kernels.empty())
-    {
-        // Use GetDLFwdF32Instances() to ensure DL symbols are linked
-        const auto& instances = GetDLFwdF32Instances();
-        CKArgsDL ck_args(problem);
-        for(const auto& inst : instances)
-        {
-            if(ck_args.IsSupportedBy(inst))
-            {
-                valid_kernels.push_back(inst->GetTypeString());
-            }
-        }
-    }
+        valid_kernels = FillValidKernelsIDs<DeviceOpDLFwdF32Ptrs, CKArgsDL>(problem);
     index     = 0;
     kernel_id = valid_kernels.empty() ? "" : valid_kernels[index];
 }
@@ -234,34 +214,14 @@ void PerformanceConfigHipImplicitGemm2DGroupedFwdDlops::Init(const ProblemDescri
 bool PerformanceConfigHipImplicitGemm2DGroupedFwdDlops::CheckIsSupportCKArgs(
     const ProblemDescription& problem) const
 {
-    // Use forced instances to check support
-    const auto& instances = GetDLFwdF32Instances();
-    CKArgsDL ck_args(problem);
-    for(const auto& inst : instances)
-    {
-        if(inst->GetTypeString() == kernel_id && ck_args.IsSupportedBy(inst))
-            return true;
-    }
-    return false;
+    return IsCKArgsSupported<DeviceOpDLFwdF32Ptrs, CKArgsDL>(problem, kernel_id);
 }
 
 // Check if CK DL instances are applicable
 bool ConvHipImplicitGemm2DGroupedFwdDlops::CheckCKApplicability(
     const ProblemDescription& problem) const
 {
-    // Use GetDLFwdF32Instances() to ensure DL instances are linked
-    const auto& instances = GetDLFwdF32Instances();
-    if(instances.empty())
-        return false;
-
-    // Check if any instance supports this problem
-    CKArgsDL ck_args(problem);
-    for(const auto& inst : instances)
-    {
-        if(ck_args.IsSupportedBy(inst))
-            return true;
-    }
-    return false;
+    return IsCKApplicable<DeviceOpDLFwdF32Ptrs, CKArgsDL>(problem);
 }
 
 #endif // MIOPEN_BACKEND_HIP && MIOPEN_USE_COMPOSABLEKERNEL
