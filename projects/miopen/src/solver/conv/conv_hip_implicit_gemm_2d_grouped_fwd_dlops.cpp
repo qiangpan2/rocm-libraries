@@ -75,11 +75,15 @@ using DeviceOpDLFwdF32Ptrs =
 // Force linker to include DL instances from CK library
 // Without this, the linker strips unused symbols due to --exclude-libs,ALL
 namespace {
-[[maybe_unused]] static const bool force_link_dl_instances = []() {
+// Use volatile to prevent compiler from optimizing away the static initialization
+static volatile bool force_link_dl_instances = []() {
     std::vector<std::unique_ptr<DeviceOpDLFwdF32>> dummy;
     ck::tensor_operation::device::instance::add_device_grouped_conv2d_fwd_dl_nhwgc_gkyxc_nhwgk_f32_instances(dummy);
     return true;
 }();
+// Also create a function pointer reference to ensure symbol is not stripped
+static auto* volatile force_link_func_ptr = 
+    &ck::tensor_operation::device::instance::add_device_grouped_conv2d_fwd_dl_nhwgc_gkyxc_nhwgk_f32_instances;
 } // namespace force_link
 
 namespace {
