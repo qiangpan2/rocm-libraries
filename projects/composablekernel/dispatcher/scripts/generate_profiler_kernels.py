@@ -100,7 +100,7 @@ def main():
     parser.add_argument("--variant", required=True, choices=list(VARIANT_CONFIG.keys()))
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--arch", default="gfx950")
-    parser.add_argument("--datatype", choices=["fp16", "bf16", "fp32"])
+    parser.add_argument("--datatype", nargs="+", choices=["fp16", "bf16", "fp32"])
     parser.add_argument("--rule-set", default="tests",
                         choices=["profiler", "tests", "full", "full-tests", "tiny", "default", "rdna"],
                         help="Rule set: 'profiler'/'tests' (CK Builder "
@@ -115,13 +115,24 @@ def main():
     cfg = VARIANT_CONFIG[args.variant]
     output_dir = Path(args.output_dir)
     production = args.rule_set == "rdna"
-    if production and (
-        args.arch != "gfx1100" or args.datatype != "fp16" or args.variant != "fwd"
-    ):
-        parser.error(
-            "rdna production generation requires "
-            "--variant fwd --arch gfx1100 --datatype fp16"
-        )
+    requested_datatypes = args.datatype
+    if production:
+        _ensure_codegen_importable()
+        from grouped_conv.grouped_config_rules_rdna import supported_datatypes
+
+        # Default to the arch_specs-derived set so callers need not restate it;
+        # an explicit --datatype may only narrow that set.
+        allowed = supported_datatypes(args.arch)
+        requested_datatypes = requested_datatypes or allowed
+        if args.variant != "fwd":
+            parser.error("rdna production generation requires --variant fwd")
+        if not allowed:
+            parser.error(f"rdna production generation does not support --arch {args.arch}")
+        if not set(requested_datatypes) <= set(allowed):
+            parser.error(
+                f"rdna production generation for --arch {args.arch} supports "
+                f"--datatype from {allowed}"
+            )
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(
@@ -137,7 +148,7 @@ def main():
         )
 
         variant_enum = GroupedConvVariant[VARIANT_MAP[args.variant]]
-        datatypes = [args.datatype] if args.datatype else ["fp16", "bf16", "fp32"]
+        datatypes = requested_datatypes or ["fp16", "bf16", "fp32"]
         print(
             f"Generating configs from rules (variant={args.variant}, "
             f"arch={args.arch}, datatypes={datatypes}, rule_set={args.rule_set})..."

@@ -6,14 +6,15 @@
 """Small deterministic production catalog for wave32 RDNA grouped convolution.
 
 Applies to any architecture whose arch spec declares wave32 plus the 16x16x16
-FP16 WMMA warp tile, so the supported arch list lives in arch_specs, not here.
+WMMA warp tile for a datatype in WMMA_DATATYPES, so both the supported arch list
+and the per-arch datatype list live in arch_specs, not here.
 """
 
 from typing import List
 
 from grouped_conv.grouped_config_rules_default import get_warp_size
 
-FP16_DTYPE_KEY = "fp16_fp16_fp32"
+WMMA_DATATYPES = ("fp16", "bf16")
 WMMA_WARP_TILE = [16, 16, 16]
 
 TILE_K = 32
@@ -22,9 +23,21 @@ TILE_K = 32
 VECTOR_SIZES = (2, 2, 8)
 
 
+def supported_datatypes(arch: str) -> List[str]:
+    """Datatypes this rule set can generate for arch; empty means unsupported."""
+    from arch_specs_generated import get_warp_tile_combos
+
+    if get_warp_size(arch) != 32:
+        return []
+    return [
+        dtype for dtype in WMMA_DATATYPES
+        if WMMA_WARP_TILE in get_warp_tile_combos(arch, f"{dtype}_{dtype}_fp32")
+    ]
+
+
 def get_configs(arch: str, variants: List, ndims: List[int], datatypes: List[str]) -> List:
-    """Return the Phase-0 FP16 forward catalog in stable order."""
-    from arch_specs_generated import get_warp_configs, get_warp_tile_combos
+    """Return the forward catalog for arch in stable order."""
+    from arch_specs_generated import get_warp_configs
     from unified_grouped_conv_codegen import (
         GroupedConvKernelConfig,
         GroupedConvTraitConfig,
@@ -32,18 +45,19 @@ def get_configs(arch: str, variants: List, ndims: List[int], datatypes: List[str
         TileConfig,
     )
 
-    if "fp16" not in datatypes or GroupedConvVariant.FORWARD not in variants:
+    if GroupedConvVariant.FORWARD not in variants:
         return []
-    if get_warp_size(arch) != 32:
-        return []
-    if WMMA_WARP_TILE not in get_warp_tile_combos(arch, FP16_DTYPE_KEY):
+
+    selected = [dtype for dtype in supported_datatypes(arch) if dtype in datatypes]
+    if not selected:
         return []
 
     waves = get_warp_configs(arch)
     warp_tile_m, warp_tile_n, warp_tile_k = WMMA_WARP_TILE
 
     configs = []
-    for ndim in sorted(set(ndims)):
+    for dtype in selected:
+      for ndim in sorted(set(ndims)):
         if ndim not in (2, 3):
             continue
         for wave_m, wave_n, wave_k in waves:
@@ -68,7 +82,7 @@ def get_configs(arch: str, variants: List, ndims: List[int], datatypes: List[str
                     ndim_spatial=ndim,
                     arch=arch,
                     vector_sizes=VECTOR_SIZES,
-                    datatype="fp16",
+                    datatype=dtype,
                 )
             )
     return configs

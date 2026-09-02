@@ -38,8 +38,8 @@ set(PROFILER_OPS
     profile_gemm_quantization.cpp
 )
 
-string(REPLACE " " ";" _DISPATCHER_SUPPORTED_GPU_TARGETS "${SUPPORTED_GPU_TARGETS}")
-list(FIND _DISPATCHER_SUPPORTED_GPU_TARGETS "gfx1100" _DISPATCHER_GFX1100_INDEX)
+include(${PROJECT_SOURCE_DIR}/dispatcher/rdna_targets.cmake)
+ck_dispatcher_rdna_target("${SUPPORTED_GPU_TARGETS}" _DISPATCHER_RDNA_TARGET)
 
 if(SUPPORTED_GPU_TARGETS MATCHES "gfx9|gfx1250")
   if(DTYPES MATCHES "fp32" OR DTYPES MATCHES "fp64" OR NOT DEFINED DTYPES)
@@ -49,8 +49,7 @@ if(SUPPORTED_GPU_TARGETS MATCHES "gfx9|gfx1250")
 endif()
 
 # Must stay in sync with the dispatcher instance-library gate further down.
-if((SUPPORTED_GPU_TARGETS MATCHES "gfx9|gfx1250" OR
-    NOT _DISPATCHER_GFX1100_INDEX EQUAL -1) AND
+if((SUPPORTED_GPU_TARGETS MATCHES "gfx9|gfx1250" OR _DISPATCHER_RDNA_TARGET) AND
    (CK_EXPERIMENTAL_BUILDER OR CK_TILE_DISPATCHER))
   list(APPEND PROFILER_OPS profile_grouped_conv_fwd_tile.cpp)
   list(APPEND PROFILER_OPS profile_grouped_conv_bwd_weight_tile.cpp)
@@ -165,8 +164,7 @@ endif()
 # CK Tile Dispatcher: Generate and compile CK Tile conv kernels
 # =============================================================================
 if(CK_TILE_DISPATCHER AND
-   (SUPPORTED_GPU_TARGETS MATCHES "gfx9|gfx1250" OR
-    NOT _DISPATCHER_GFX1100_INDEX EQUAL -1))
+   (SUPPORTED_GPU_TARGETS MATCHES "gfx9|gfx1250" OR _DISPATCHER_RDNA_TARGET))
 
   # Build dispatcher instance libraries (defines ck_dispatcher_grouped_conv_* targets)
   if(NOT TARGET ck_dispatcher_grouped_conv_fwd)

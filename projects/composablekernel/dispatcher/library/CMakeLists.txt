@@ -16,16 +16,18 @@
 set(DISPATCHER_DIR "${PROJECT_SOURCE_DIR}/dispatcher")
 set(DISPATCHER_RULE_SET "tests" CACHE STRING "Dispatcher rule set")
 
-# Normalize GPU_TARGETS, and select gfx1100 exactly regardless of list order.
+# An RDNA target anywhere in GPU_TARGETS selects the production catalog.
+include(${DISPATCHER_DIR}/rdna_targets.cmake)
 string(REPLACE ";" " " _GPU_TARGETS_SPACE "${GPU_TARGETS}")
 string(REPLACE " " ";" _GPU_TARGETS_LIST "${_GPU_TARGETS_SPACE}")
 list(FILTER _GPU_TARGETS_LIST EXCLUDE REGEX "^$")
-list(FIND _GPU_TARGETS_LIST "gfx1100" _GFX1100_INDEX)
-if(NOT _GFX1100_INDEX EQUAL -1)
-  set(_GPU_TARGET "gfx1100")
+ck_dispatcher_rdna_target("${_GPU_TARGETS_LIST}" _RDNA_TARGET)
+if(_RDNA_TARGET)
+  set(_GPU_TARGET "${_RDNA_TARGET}")
   set(_DISPATCHER_VARIANTS fwd)
   set(_DISPATCHER_EFFECTIVE_RULE_SET rdna)
-  set(_DISPATCHER_EXTRA_ARGS --datatype fp16)
+  # No --datatype: the generator derives the set from arch_specs for this target.
+  set(_DISPATCHER_EXTRA_ARGS)
 else()
   list(GET _GPU_TARGETS_LIST 0 _GPU_TARGET)
   set(_DISPATCHER_VARIANTS fwd bwd_weight bwd_data)
@@ -131,8 +133,8 @@ function(ck_add_dispatcher_conv_instances VARIANT)
     target_compile_options(${TARGET_NAME} PRIVATE --offload-compress)
   endif()
   set_target_properties(${TARGET_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  if(_GPU_TARGET STREQUAL "gfx1100")
-    set_target_properties(${TARGET_NAME} PROPERTIES HIP_ARCHITECTURES gfx1100)
+  if(_RDNA_TARGET)
+    set_target_properties(${TARGET_NAME} PROPERTIES HIP_ARCHITECTURES ${_RDNA_TARGET})
   endif()
 
   # Progress monitoring
