@@ -163,7 +163,11 @@ def parse_kernel_metadata(kname):
     return {
         "ndim": ndim,
         "dtype": dtype,
-        "layout": "ndhwgc" if "_ndhwgc_" in kname else "nhwgc",
+        "layout": (
+            "ndhwgc_gkzyxc_ndhwgk"
+            if ndim == 3
+            else "nhwgc_gkyxc_nhwgk"
+        ),
         "tile_m": tile_m, "tile_n": tile_n, "tile_k": tile_k,
         "wave_m": wave_m, "wave_n": wave_n, "wave_k": wave_k,
         "warp_m": warp_m, "warp_n": warp_n, "warp_k": warp_k,
@@ -220,7 +224,7 @@ def _make_implicit_gemm_conv_key(meta):
         f'        key.dtype_in     = "{meta["dtype"]}";',
         f'        key.dtype_wei    = "{meta["dtype"]}";',
         f'        key.dtype_out    = "{meta["dtype"]}";',
-        f'        key.layout       = "{meta.get("layout", "nhwgc")}";',
+        f'        key.layout       = "{meta.get("layout", "ndhwgc_gkzyxc_ndhwgk" if meta["ndim"] == 3 else "nhwgc_gkyxc_nhwgk")}";',
         f"        key.ndim_spatial = {meta['ndim']};",
         f"        key.tile_m       = {meta['tile_m']};",
         f"        key.tile_n       = {meta['tile_n']};",

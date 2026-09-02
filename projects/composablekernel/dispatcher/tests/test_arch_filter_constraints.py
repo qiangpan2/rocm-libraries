@@ -26,7 +26,7 @@ DISPATCHER_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(DISPATCHER_DIR / "codegen"))
 
 # Importing at all fails if arch_filter.py has a syntax error.
-from arch_filter import OPERATOR_TILE_CONSTRAINTS, OperatorType  # noqa: E402
+from arch_filter import ArchFilter, OPERATOR_TILE_CONSTRAINTS, OperatorType  # noqa: E402
 
 REQUIRED_KEYS = {
     "min_tile_m",
@@ -74,6 +74,30 @@ class TestOperatorTileConstraints(unittest.TestCase):
         self.assertEqual(REQUIRED_KEYS, set(grouped.keys()))
         # GEMM_GROUPED and GEMM_STREAMK are separate entries, not a merged one.
         self.assertIn(OperatorType.GEMM_STREAMK, OPERATOR_TILE_CONSTRAINTS)
+
+
+    def test_gfx1100_accepts_native_fp16_wmma_k16(self):
+        arch_filter = ArchFilter("gfx1100")
+        self.assertTrue(
+            arch_filter.is_kernel_valid(
+                datatype_a="fp16", datatype_b="fp16", datatype_c="fp16",
+                tile_m=32, tile_n=64, tile_k=32,
+                warp_m=2, warp_n=4, warp_k=1,
+                warp_tile_m=16, warp_tile_n=16, warp_tile_k=16,
+                pipeline="compv3", epilogue="cshuffle", scheduler="intrawave",
+                operator=OperatorType.CONV_FWD,
+            )
+        )
+        self.assertFalse(
+            arch_filter.is_kernel_valid(
+                datatype_a="fp16", datatype_b="fp16", datatype_c="fp16",
+                tile_m=32, tile_n=64, tile_k=32,
+                warp_m=2, warp_n=4, warp_k=1,
+                warp_tile_m=16, warp_tile_n=16, warp_tile_k=32,
+                pipeline="compv3", epilogue="cshuffle", scheduler="intrawave",
+                operator=OperatorType.CONV_FWD,
+            )
+        )
 
 
 if __name__ == "__main__":

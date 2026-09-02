@@ -18,6 +18,7 @@ Based on the GEMM codegen pattern.
 import argparse
 import importlib
 import logging
+import sys
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 from dataclasses import dataclass, field
@@ -31,6 +32,9 @@ from codegen_common import (
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
+
+# Rule modules import this module by name; preserve enum identity when run as a script.
+sys.modules.setdefault("unified_grouped_conv_codegen", sys.modules[__name__])
 
 # Import architecture filter for GPU-specific validation
 try:
@@ -1667,29 +1671,7 @@ constexpr const char* CONV_FWD_KERNEL_NAME = {ns_name}::CONV_FWD_KERNEL_NAME;
 
 
 class GroupedConvDispatcherWrapperGenerator:
-    """Generates dispatcher integration wrapper following GEMM pattern"""
-
-    # Static mappings for pipeline and scheduler enum names (matches kernel_key.hpp)
-    PIPELINE_TO_DISPATCHER = {
-        "mem": "Pipeline::Mem",
-        "compv1": "Pipeline::CompV1",
-        "compv2": "Pipeline::CompV2",
-        "basic_v1": "Pipeline::CompV1",
-        "basic_v2": "Pipeline::CompV2",
-        "compv3": "Pipeline::CompV3",
-        "compv4": "Pipeline::CompV4",
-        "compv5": "Pipeline::CompV5",
-        "compv6": "Pipeline::CompV6",
-        "preshufflev1": "Pipeline::PreShuffleV1",
-        "preshufflev2": "Pipeline::PreShuffleV2",
-        "wavelet": "Pipeline::Wavelet",
-    }
-
-    SCHEDULER_TO_DISPATCHER = {
-        "default": "Scheduler::Default",
-        "intrawave": "Scheduler::Intrawave",
-        "interwave": "Scheduler::Interwave",
-    }
+    """Generate a registry factory using the runtime's flat grouped-conv key."""
 
     def __init__(
         self,
@@ -1699,121 +1681,141 @@ class GroupedConvDispatcherWrapperGenerator:
         self.datatype = datatype
         self.variant = variant
 
-    def _pipeline_to_dispatcher(self, pipeline: str) -> str:
-        """Convert pipeline string to dispatcher enum value"""
-        return self.PIPELINE_TO_DISPATCHER.get(
-            pipeline.lower(), f"Pipeline::{pipeline.capitalize()}"
-        )
-
-    def _scheduler_to_dispatcher(self, scheduler: str) -> str:
-        """Convert scheduler string to dispatcher enum value"""
-        return self.SCHEDULER_TO_DISPATCHER.get(
-            scheduler.lower(), f"Scheduler::{scheduler.capitalize()}"
-        )
-
-    # Map datatype string to dispatcher DataType enum
-    DTYPE_TO_DISPATCHER = {
-        "fp16": "DataType::FP16",
-        "bf16": "DataType::BF16",
-        "fp32": "DataType::FP32",
-    }
-
     def generate(
         self,
         config: Union[GroupedConvKernelConfig, DepthwiseConvKernelConfig],
         kernel_path: Path,
         output_dir: Path,
     ) -> str:
-        """Generate dispatcher wrapper with factory function for registry."""
         kernel_name = config.name(self.datatype)
         rel_path = kernel_path.relative_to(output_dir)
         is_depthwise = isinstance(config, DepthwiseConvKernelConfig)
+        variant = GroupedConvVariant.FORWARD if is_depthwise else self.variant
+        op = {
+            GroupedConvVariant.FORWARD: "GroupedConvOp::Forward",
+            GroupedConvVariant.BACKWARD_DATA: "GroupedConvOp::BackwardData",
+            GroupedConvVariant.BACKWARD_WEIGHT: "GroupedConvOp::BackwardWeight",
+        }[variant]
+        factory_prefix = {
+            GroupedConvVariant.FORWARD: "conv_fwd",
+            GroupedConvVariant.BACKWARD_DATA: "conv_bwd_data",
+            GroupedConvVariant.BACKWARD_WEIGHT: "conv_bwd_weight",
+        }[variant]
+        layout = {
+            2: "nhwgc_gkyxc_nhwgk",
+            3: "ndhwgc_gkzyxc_ndhwgk",
+        }.get(config.ndim_spatial)
+        if layout is None:
+            layout = config.layout.value.lower() if hasattr(config.layout, "value") else str(config.layout).lower()
 
-        dtype_enum = self.DTYPE_TO_DISPATCHER.get(self.datatype, "DataType::FP16")
-
-        # Determine variant-specific fields
-        if is_depthwise or self.variant == GroupedConvVariant.FORWARD:
-            launcher_alias = "SelectedConvKernelLauncher"
-            host_args_type = "GroupedConvFwdHostArgs<>"
-            conv_type_str = "forward"
-        elif self.variant == GroupedConvVariant.BACKWARD_DATA:
-            launcher_alias = "SelectedConvBwdDataLauncher"
-            host_args_type = "GroupedConvBwdDataHostArgs"
-            conv_type_str = "bwd_data"
-        else:  # BACKWARD_WEIGHT
-            launcher_alias = "SelectedConvBwdWeightLauncher"
-            host_args_type = "GroupedConvBwdWeightHostArgs"
-            conv_type_str = "bwd_weight"
-
-        layout = config.layout
-
-        # Algorithm key fields differ between implicit GEMM and depthwise algorithms
         if is_depthwise:
-            algorithm_spec = """    // Depthwise kernels have no GEMM tile parameters
-    key.algorithm.tile_shape = {0, 0, 0};
-    key.algorithm.wave_shape = {0, 0, 0};
-    key.algorithm.warp_tile_shape = {0, 0, 0};
-    key.algorithm.epilogue = Epilogue::None;"""
+            tile_m = tile_n = tile_k = 0
+            wave_m = wave_n = wave_k = 1
+            warp_m = warp_n = warp_k = 0
+            pipeline = "depthwise"
+            scheduler = "default"
+            epilogue = "none"
+            vector_a, vector_b, vector_c = config.in_vec, config.in_vec, config.out_vec
+            block_size = config.block_size
+            block_per_cu = 1
+            num_wave_groups = num_groups_to_merge = 1
+            double_smem_buffer = pad_m = pad_n = pad_k = False
+            specialization = "depthwise"
+            large_tensor = two_stage = explicit_gemm = False
+            streamk_enabled = streamk_persistent = False
+            streamk_reduction = "none"
         else:
-            algorithm_spec = f"""    key.algorithm.tile_shape = {{{config.tile.tile_m}, {config.tile.tile_n}, {config.tile.tile_k}}};
-    key.algorithm.wave_shape = {{{config.tile.warp_m}, {config.tile.warp_n}, 1}};
-    key.algorithm.warp_tile_shape = {{{config.tile.warp_tile_m}, {config.tile.warp_tile_n}, {config.tile.warp_tile_k}}};
-    key.algorithm.pipeline = {self._pipeline_to_dispatcher(config.trait.pipeline)};
-    key.algorithm.scheduler = {self._scheduler_to_dispatcher(config.trait.scheduler)};
-    key.algorithm.epilogue = Epilogue::CShuffle;"""
+            tile = config.tile
+            trait = config.trait
+            tile_m, tile_n, tile_k = tile.tile_m, tile.tile_n, tile.tile_k
+            wave_m, wave_n, wave_k = tile.warp_m, tile.warp_n, tile.warp_k
+            warp_m, warp_n, warp_k = tile.warp_tile_m, tile.warp_tile_n, tile.warp_tile_k
+            pipeline, scheduler, epilogue = trait.pipeline, trait.scheduler, trait.epilogue
+            vector_a, vector_b, vector_c = config.vector_size_a, config.vector_size_b, config.vector_size_c
+            wave_size = get_warp_size(config.arch)
+            block_size = wave_size * wave_m * wave_n * wave_k
+            block_per_cu = config.block_per_cu
+            num_wave_groups = config.num_wave_groups
+            num_groups_to_merge = config.num_groups_to_merge
+            double_smem_buffer = config.double_smem_buffer
+            pad_m, pad_n, pad_k = trait.pad_m, trait.pad_n, trait.pad_k
+            specialization = trait.specialization
+            large_tensor, two_stage, explicit_gemm = trait.split_image, trait.two_stage, trait.explicit_gemm
+            streamk_enabled = trait.streamk_config.streamk_enabled
+            streamk_persistent = trait.streamk_config.streamk_persistent
+            streamk_reduction = trait.streamk_config.strategy.value.lower() if streamk_enabled else "none"
+
+        wave_size = get_warp_size(config.arch)
+        instruction_family = "wmma" if wave_size == 32 else "mfma"
+        cpp_bool = lambda value: "true" if value else "false"
 
         return f"""// SPDX-License-Identifier: MIT
 // Auto-generated dispatcher wrapper for: {kernel_name}
 #pragma once
 
-#include "ck_tile/dispatcher.hpp"
-#include "ck_tile/dispatcher/grouped_conv_utils.hpp"
+#include "ck_tile/dispatcher/grouped_conv_registry.hpp"
+#include "ck_tile/dispatcher/backends/generated_conv_backend.hpp"
 #include "../{rel_path}"
 
 namespace ck_tile {{
 namespace dispatcher {{
 namespace generated {{
 
-using ::ck_tile::dispatcher::GroupedConvKernelInstancePtr;
-using ::ck_tile::dispatcher::GroupedConvKernelKey;
-using ::ck_tile::dispatcher::DataType;
-using ::ck_tile::dispatcher::LayoutTag;
-using ::ck_tile::dispatcher::Pipeline;
-using ::ck_tile::dispatcher::Scheduler;
-using ::ck_tile::dispatcher::Epilogue;
-using Priority = ::ck_tile::dispatcher::GroupedConvRegistry::Priority;
-
-// Factory function to create kernel instance for registry
-inline GroupedConvKernelInstancePtr make_{kernel_name}(const std::string& gfx_arch = "gfx942") {{
+inline GroupedConvKernelInstancePtr make_{kernel_name}(const std::string& arch = "{config.arch}") {{
     GroupedConvKernelKey key;
-    key.signature.dtype_in = {dtype_enum};
-    key.signature.dtype_wei = {dtype_enum};
-    key.signature.dtype_out = {dtype_enum};
-    key.signature.dtype_acc = DataType::FP32;
-    key.signature.layout = "{layout}";
-    key.signature.conv_type = "{conv_type_str}";
-    key.signature.num_dims = {config.ndim_spatial};
-    key.signature.groups = 1;
+    key.dtype_in = "{self.datatype}";
+    key.dtype_wei = "{self.datatype}";
+    key.dtype_out = "{self.datatype}";
+    key.layout = "{layout}";
+    key.ndim_spatial = {config.ndim_spatial};
+    key.op = {op};
+    key.tile_m = {tile_m};
+    key.tile_n = {tile_n};
+    key.tile_k = {tile_k};
+    key.wave_m = {wave_m};
+    key.wave_n = {wave_n};
+    key.wave_k = {wave_k};
+    key.warp_m = {warp_m};
+    key.warp_n = {warp_n};
+    key.warp_k = {warp_k};
+    key.wave_size = {wave_size};
+    key.instruction_family = "{instruction_family}";
+    key.pipeline = "{pipeline}";
+    key.scheduler = "{scheduler}";
+    key.epilogue = "{epilogue}";
+    key.memory_operation = "set";
+    key.input_element_op = "pass_through";
+    key.weight_element_op = "pass_through";
+    key.output_element_op = "pass_through";
+    key.vector_size_a = {vector_a};
+    key.vector_size_b = {vector_b};
+    key.vector_size_c = {vector_c};
+    key.block_size = {block_size};
+    key.block_per_cu = {block_per_cu};
+    key.num_wave_groups = {num_wave_groups};
+    key.num_groups_to_merge = {num_groups_to_merge};
+    key.double_smem_buffer = {cpp_bool(double_smem_buffer)};
+    key.gemm_pad_m = {cpp_bool(pad_m)};
+    key.gemm_pad_n = {cpp_bool(pad_n)};
+    key.gemm_pad_k = {cpp_bool(pad_k)};
+    key.specialization = "{specialization}";
+    key.large_tensor = {cpp_bool(large_tensor)};
+    key.two_stage = {cpp_bool(two_stage)};
+    key.explicit_gemm = {cpp_bool(explicit_gemm)};
+    key.streamk_enabled = {cpp_bool(streamk_enabled)};
+    key.streamk_reduction = "{streamk_reduction}";
+    key.streamk_persistent = {cpp_bool(streamk_persistent)};
+    key.arch = arch;
 
-    {algorithm_spec}
-    key.gfx_arch = gfx_arch;
-
-    // Create kernel instance that wraps the launcher
+    auto run_fn = backends::make_{factory_prefix}_run_fn<{kernel_name}_Launcher, {config.ndim_spatial}>();
+    auto is_supported_fn = backends::make_{factory_prefix}_is_supported_fn<{kernel_name}_Launcher, {config.ndim_spatial}>();
     return std::make_shared<GroupedConvKernelInstance>(
-        key,
-        "{kernel_name}",
-        []({host_args_type}& args, const stream_config& cfg) -> float {{
-            return {kernel_name}_Launcher::launch(args, cfg);
-        }}
-    );
+        key, "{kernel_name}", std::move(run_fn), std::move(is_supported_fn));
 }}
 
-}}  // namespace generated
-}}  // namespace dispatcher
-}}  // namespace ck_tile
-
-// Export launcher alias to global namespace for direct use
-using {launcher_alias} = {kernel_name}_Launcher;
+}} // namespace generated
+}} // namespace dispatcher
+}} // namespace ck_tile
 """
 
 
@@ -1823,6 +1825,7 @@ using {launcher_alias} = {kernel_name}_Launcher;
 # lives in the codegen. Builder-derived sets (profiler/tests) and subset sets
 # (tiny) reuse a shared module's entry points rather than thin wrapper modules.
 _RULE_SET_MODULES = {
+    "rdna":       ("grouped_conv.grouped_config_rules_rdna",       "get_configs"),
     "default":    ("grouped_conv.grouped_config_rules_default",    "get_configs"),
     "full":       ("grouped_conv.grouped_config_rules_full",       "get_configs"),
     "full-tests": ("grouped_conv.grouped_config_rules_full_tests", "get_configs"),
@@ -1920,6 +1923,7 @@ class UnifiedGroupedConvCodegen:
         datatype: str = "fp16",
         ndim_spatial: int = 2,
         enable_arch_filter: bool = True,
+        require_arch_filter: bool = False,
     ):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1936,11 +1940,19 @@ class UnifiedGroupedConvCodegen:
 
         # Initialize architecture filter for GPU-specific validation
         self.arch_filter = None
+        if require_arch_filter and not enable_arch_filter:
+            raise RuntimeError("A required architecture filter cannot be disabled")
+        if require_arch_filter and not HAS_ARCH_FILTER:
+            raise RuntimeError("Architecture filter is required but unavailable")
         if enable_arch_filter and HAS_ARCH_FILTER:
             try:
-                self.arch_filter = ArchFilter(gpu_target, strict_mode=False)
+                self.arch_filter = ArchFilter(gpu_target, strict_mode=require_arch_filter)
                 log.info(f"Architecture filter enabled for {gpu_target}")
-            except ValueError as e:
+            except Exception as e:
+                if require_arch_filter:
+                    raise RuntimeError(
+                        f"Could not initialize required architecture filter: {e}"
+                    ) from e
                 log.warning(f"Could not create arch filter: {e}")
 
     def _get_configs(self) -> List[GroupedConvKernelConfig | DepthwiseConvKernelConfig]:
@@ -2106,6 +2118,17 @@ namespace ck_tile {{ namespace generated {{
                 f"{len(valid_tasks)} remaining"
             )
 
+        valid_tasks.sort(key=lambda task: task[0].name(task[1]))
+        names = [config.name(datatype) for config, datatype, _ in valid_tasks]
+        duplicate_names = sorted({name for name in names if names.count(name) > 1})
+        if duplicate_names:
+            results["failed"].extend(
+                f"Duplicate generated kernel identity: {name}" for name in duplicate_names
+            )
+            valid_tasks = [
+                task for task in valid_tasks if task[0].name(task[1]) not in duplicate_names
+            ]
+
         total = len(valid_tasks)
         items = [
             _GenItem(i, total, config, datatype, variant)
@@ -2130,6 +2153,9 @@ namespace ck_tile {{ namespace generated {{
             else:
                 results["failed"].append(r[3])
                 log.error("Failed: %s", r[3])
+
+        results["kernels"].sort(key=lambda path: path.name)
+        results["wrappers"].sort(key=lambda path: path.name)
 
         # Generate include_all_*.hpp headers for Python ctypes libraries
         if results["wrappers"]:
@@ -2353,7 +2379,7 @@ def main():
         "-a",
         type=str,
         default="gfx942",
-        choices=["gfx90a", "gfx942", "gfx950", "gfx1201", "gfx1250"],
+        choices=["gfx90a", "gfx942", "gfx950", "gfx1100", "gfx1200", "gfx1201", "gfx1250"],
         help="Target GPU architecture",
     )
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
@@ -2367,7 +2393,7 @@ def main():
         "-r",
         type=str,
         default="default",
-        choices=["default", "full", "full-tests", "profiler", "tests", "tiny"],
+        choices=["default", "full", "full-tests", "profiler", "tests", "tiny", "rdna"],
         help="Rule-set used in the instance generation",
     )
 

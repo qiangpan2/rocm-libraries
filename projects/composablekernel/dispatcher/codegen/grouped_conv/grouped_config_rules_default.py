@@ -325,7 +325,8 @@ def check_wmma_instance(
     """
     if warp_size != 32:
         return True
-    if k_per_xdl < 32 and dtype != "float":
+    # Native wave32 WMMA supports fp16/bf16 16x16x16 instances.
+    if k_per_xdl < 16 and dtype != "float":
         return False
     if k_warp * k_per_xdl > k_per_block:
         return False

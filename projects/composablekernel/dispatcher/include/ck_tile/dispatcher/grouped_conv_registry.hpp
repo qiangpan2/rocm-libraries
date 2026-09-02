@@ -19,32 +19,16 @@
 #include <sstream>
 #include <iomanip>
 #include <map>
+#include <algorithm>
 
 #include "ck_tile/dispatcher/base_registry.hpp"
 #include "ck_tile/dispatcher/dispatcher_error.hpp"
 #include "ck_tile/dispatcher/grouped_conv_problem.hpp"
+#include "ck_tile/dispatcher/grouped_conv_invocation.hpp"
 #include "ck_tile/dispatcher/grouped_conv_kernel_decl.hpp"
 
 namespace ck_tile {
 namespace dispatcher {
-
-// =============================================================================
-// Thread-local buffer context for GroupedConvDispatcher::run()
-// The generated conv backend RunFn reads these to get buffer pointers.
-// =============================================================================
-
-struct ConvDispatchBuffers
-{
-    const void* input_ptr  = nullptr;
-    const void* weight_ptr = nullptr;
-    void* output_ptr       = nullptr;
-    int warmup             = 3;
-    int repeat             = 10;
-    bool benchmarking      = true;
-    int split_k            = 1;
-};
-
-inline thread_local ConvDispatchBuffers g_conv_dispatch_buffers;
 
 // =============================================================================
 // GroupedConvKernelKey - Unique identifier for a grouped convolution kernel
@@ -72,25 +56,38 @@ struct GroupedConvKernelKey
     int warp_m = 32;
     int warp_n = 32;
     int warp_k = 16;
+    int wave_size = 32;
+    std::string instruction_family = "wmma";
 
     // Pipeline
     std::string pipeline  = "compv3";
     std::string scheduler = "intrawave";
     std::string epilogue  = "cshuffle";
+    std::string memory_operation = "set";
+    std::string input_element_op = "pass_through";
+    std::string weight_element_op = "pass_through";
+    std::string output_element_op = "pass_through";
 
     // ConvConfigBase parity fields
     int vector_size_a       = 4;
     int vector_size_b       = 8;
     int vector_size_c       = 8;
+    int block_size          = 256;
     int block_per_cu        = 1;
     int num_wave_groups     = 1;
     int num_groups_to_merge = 1;
+    bool double_smem_buffer = false;
+    bool gemm_pad_m = true;
+    bool gemm_pad_n = true;
+    bool gemm_pad_k = true;
 
     // Convolution specialization (e.g., "default", "filter1x1_stride1_pad0")
     std::string specialization = "default";
 
     // Large tensor (split image) support
     bool large_tensor = false;
+    bool two_stage = false;
+    bool explicit_gemm = false;
 
     // Stream-K configuration
     bool streamk_enabled          = false;
@@ -108,12 +105,21 @@ struct GroupedConvKernelKey
                tile_n == other.tile_n && tile_k == other.tile_k && wave_m == other.wave_m &&
                wave_n == other.wave_n && wave_k == other.wave_k && warp_m == other.warp_m &&
                warp_n == other.warp_n && warp_k == other.warp_k && pipeline == other.pipeline &&
+               wave_size == other.wave_size && instruction_family == other.instruction_family &&
                scheduler == other.scheduler && epilogue == other.epilogue &&
+               memory_operation == other.memory_operation &&
+               input_element_op == other.input_element_op &&
+               weight_element_op == other.weight_element_op &&
+               output_element_op == other.output_element_op &&
                vector_size_a == other.vector_size_a && vector_size_b == other.vector_size_b &&
-               vector_size_c == other.vector_size_c && block_per_cu == other.block_per_cu &&
+               vector_size_c == other.vector_size_c && block_size == other.block_size &&
+               block_per_cu == other.block_per_cu &&
                num_wave_groups == other.num_wave_groups &&
                num_groups_to_merge == other.num_groups_to_merge &&
+               double_smem_buffer == other.double_smem_buffer && gemm_pad_m == other.gemm_pad_m &&
+               gemm_pad_n == other.gemm_pad_n && gemm_pad_k == other.gemm_pad_k &&
                specialization == other.specialization && large_tensor == other.large_tensor &&
+               two_stage == other.two_stage && explicit_gemm == other.explicit_gemm &&
                streamk_enabled == other.streamk_enabled &&
                streamk_reduction == other.streamk_reduction &&
                streamk_persistent == other.streamk_persistent && arch == other.arch;
@@ -136,31 +142,38 @@ struct GroupedConvKernelKey
                std::to_string(warp_k) + "_" + pipeline +
                (specialization != "default" ? "_" + specialization : "");
     }
+
+    std::string kernel_id() const
+    {
+        std::string result = "cktile_gconv_v1";
+        const auto append = [&result](const auto& value) {
+            std::ostringstream text;
+            text << value;
+            const std::string encoded = text.str();
+            result += "|" + std::to_string(encoded.size()) + ":" + encoded;
+        };
+        append(dtype_in); append(dtype_wei); append(dtype_out); append(layout);
+        append(ndim_spatial); append(static_cast<int>(op)); append(arch);
+        append(tile_m); append(tile_n); append(tile_k); append(wave_m); append(wave_n);
+        append(wave_k); append(warp_m); append(warp_n); append(warp_k); append(wave_size);
+        append(instruction_family); append(pipeline); append(scheduler); append(epilogue);
+        append(memory_operation); append(input_element_op); append(weight_element_op);
+        append(output_element_op); append(vector_size_a); append(vector_size_b);
+        append(vector_size_c); append(block_size); append(block_per_cu); append(num_wave_groups);
+        append(num_groups_to_merge); append(double_smem_buffer); append(gemm_pad_m);
+        append(gemm_pad_n); append(gemm_pad_k); append(specialization); append(large_tensor);
+        append(two_stage); append(explicit_gemm); append(streamk_enabled);
+        append(streamk_reduction); append(streamk_persistent);
+        return result;
+    }
 };
 
 struct GroupedConvKernelKeyHash
 {
     std::size_t operator()(const GroupedConvKernelKey& key) const
     {
-        std::size_t h = std::hash<std::string>{}(key.dtype_in);
-        h ^= std::hash<std::string>{}(key.layout) << 1;
-        h ^= std::hash<int>{}(key.ndim_spatial) << 2;
-        h ^= std::hash<int>{}(static_cast<int>(key.op)) << 3;
-        h ^= std::hash<int>{}(key.tile_m) << 4;
-        h ^= std::hash<int>{}(key.tile_n) << 5;
-        h ^= std::hash<int>{}(key.tile_k) << 6;
-        h ^= std::hash<int>{}(key.wave_m) << 7;
-        h ^= std::hash<int>{}(key.wave_n) << 8;
-        h ^= std::hash<int>{}(key.warp_m) << 9;
-        h ^= std::hash<int>{}(key.warp_n) << 10;
-        h ^= std::hash<std::string>{}(key.pipeline) << 11;
-        h ^= std::hash<std::string>{}(key.arch) << 12;
-        h ^= std::hash<std::string>{}(key.specialization) << 13;
-        h ^= std::hash<bool>{}(key.large_tensor) << 14;
-        h ^= std::hash<bool>{}(key.streamk_enabled) << 15;
-        h ^= std::hash<std::string>{}(key.streamk_reduction) << 16;
-        h ^= std::hash<bool>{}(key.streamk_persistent) << 17;
-        return h;
+        // Intentionally trade hashing cost for exact operator== parity; cache IDs if the catalog grows.
+        return std::hash<std::string>{}(key.kernel_id());
     }
 };
 
@@ -187,11 +200,17 @@ class GroupedConvKernelInstance
           name_(name),
           run_fn_(std::move(run_fn)),
           is_supported_fn_(std::move(is_supported_fn)),
-          instance_string_(instance_string)
+          instance_string_(instance_string),
+          kernel_id_(key.kernel_id())
     {
     }
 
     const GroupedConvKernelKey& key() const { return key_; }
+    const std::string& kernel_id() const { return kernel_id_; }
+    bool executable() const
+    {
+        return static_cast<bool>(run_fn_) && static_cast<bool>(is_supported_fn_);
+    }
 
     /// Return the kernel name.
     /// @param use_instance_string  When true, return the CK Tile
@@ -206,12 +225,9 @@ class GroupedConvKernelInstance
     }
 
     // Check whether this kernel supports the given problem.
-    // Returns true if no IsSupportedFn was provided.
     bool is_supported(const GroupedConvProblem& problem) const
     {
-        if(is_supported_fn_)
-            return is_supported_fn_(problem);
-        return true;
+        return is_supported_fn_ && is_supported_fn_(problem);
     }
 
     float run(const GroupedConvProblem& problem, void* stream = nullptr) const
@@ -221,8 +237,10 @@ class GroupedConvKernelInstance
 
     bool matches(const GroupedConvProblem& problem) const
     {
-        // Check if this kernel can handle the problem
-        return problem.op == key_.op;
+        return problem.dtype_in == key_.dtype_in && problem.dtype_wei == key_.dtype_wei &&
+               problem.dtype_out == key_.dtype_out && problem.layout == key_.layout &&
+               problem.ndim_spatial == key_.ndim_spatial && problem.op == key_.op &&
+               problem.arch == key_.arch;
     }
 
     private:
@@ -231,6 +249,7 @@ class GroupedConvKernelInstance
     RunFn run_fn_;
     IsSupportedFn is_supported_fn_;
     std::string instance_string_;
+    std::string kernel_id_;
 };
 
 // =============================================================================
@@ -257,8 +276,23 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
         return registry;
     }
 
-    /// Register kernels from a GroupedConvKernelSet (atomic batch registration)
-    bool register_set(const GroupedConvKernelSet& kernel_set, Priority priority = Priority::Normal)
+    /// Register an executable kernel. Metadata-only instances are rejected.
+    bool register_kernel(const GroupedConvKernelKey& key,
+                         GroupedConvKernelInstancePtr instance,
+                         Priority priority = Priority::Normal)
+    {
+        if(!instance || !instance->executable() || !(instance->key() == key))
+            return false;
+        std::lock_guard<std::mutex> lock(mutex());
+        auto it = entries().find(key);
+        if(it != entries().end() && it->second.priority >= priority)
+            return false;
+        entries_mut()[key] = typename Base::Entry{std::move(instance), priority};
+        return true;
+    }
+
+    /// Register non-executable metadata from a GroupedConvKernelSet (atomic batch registration)
+    bool register_metadata_set(const GroupedConvKernelSet& kernel_set, Priority priority = Priority::Normal)
     {
         // Build all instances first, then register under a single lock hold
         // so readers never see a half-registered set.
@@ -292,16 +326,18 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
             key.vector_size_a   = decl.algorithm.vector_a_;
             key.vector_size_b   = decl.algorithm.vector_b_;
             key.vector_size_c   = decl.algorithm.vector_c_;
+            key.block_size      = decl.algorithm.block_size_;
             key.block_per_cu    = decl.algorithm.block_per_cu_;
             key.num_wave_groups = decl.algorithm.num_wave_groups_;
             key.num_groups_to_merge = decl.algorithm.num_groups_to_merge_;
+            key.memory_operation    = decl.algorithm.memory_op_;
+            key.double_smem_buffer  = decl.algorithm.double_smem_buffer_;
+            key.specialization     = decl.signature.specialization_;
             key.arch                = decl.arch;
 
             batch.emplace_back(key,
                                std::make_shared<GroupedConvKernelInstance>(
-                                   key, decl.name(), [](const GroupedConvProblem&, void*) -> float {
-                                       return 0.0f;
-                                   }));
+                                   key, decl.name(), GroupedConvKernelInstance::RunFn{}));
         }
 
         std::lock_guard<std::mutex> lock(mutex());
@@ -309,7 +345,8 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
         for(auto& [key, instance] : batch)
         {
             auto it = entries().find(key);
-            if(it == entries().end() || it->second.priority <= priority)
+            if(it == entries().end() ||
+               (!it->second.instance->executable() && it->second.priority <= priority))
             {
                 entries_mut()[key] = typename Base::Entry{std::move(instance), priority};
                 any_registered     = true;
@@ -321,15 +358,22 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
     /// Find the best kernel for a problem
     const GroupedConvKernelInstance* find(const GroupedConvProblem& problem) const
     {
+        return find_best_supported(problem);
+    }
+
+    const GroupedConvKernelInstance* find_best_supported(const GroupedConvProblem& problem) const
+    {
         std::lock_guard<std::mutex> lock(mutex());
         const GroupedConvKernelInstance* best = nullptr;
         Priority best_priority                = Priority::Low;
 
         for(const auto& [key, entry] : entries())
         {
-            if(entry.instance->matches(problem))
+            if(is_executable_candidate(*entry.instance, problem))
             {
-                if(!best || entry.priority > best_priority)
+                if(!best || entry.priority > best_priority ||
+                   (entry.priority == best_priority &&
+                    entry.instance->kernel_id() < best->kernel_id()))
                 {
                     best          = entry.instance.get();
                     best_priority = entry.priority;
@@ -338,6 +382,33 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
         }
 
         return best;
+    }
+
+    std::vector<const GroupedConvKernelInstance*>
+    find_all_supported(const GroupedConvProblem& problem) const
+    {
+        std::lock_guard<std::mutex> lock(mutex());
+        std::vector<const GroupedConvKernelInstance*> result;
+        for(const auto& item : entries())
+            if(is_executable_candidate(*item.second.instance, problem))
+                result.push_back(item.second.instance.get());
+        std::sort(result.begin(), result.end(), [](const auto* lhs, const auto* rhs) {
+            return lhs->kernel_id() < rhs->kernel_id();
+        });
+        return result;
+    }
+
+    const GroupedConvKernelInstance*
+    find_by_id(const GroupedConvProblem& problem, const std::string& kernel_id) const
+    {
+        std::lock_guard<std::mutex> lock(mutex());
+        for(const auto& item : entries())
+        {
+            const auto& instance = *item.second.instance;
+            if(instance.kernel_id() == kernel_id && is_executable_candidate(instance, problem))
+                return &instance;
+        }
+        return nullptr;
     }
 
     /// Get all registered kernels
@@ -477,6 +548,13 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
         return to_remove.size();
     }
 
+    public:
+    static bool is_executable_candidate(const GroupedConvKernelInstance& instance,
+                                        const GroupedConvProblem& problem)
+    {
+        return instance.executable() && instance.matches(problem) && instance.is_supported(problem);
+    }
+
     private:
     static std::string json_escape(const std::string& str)
     {
@@ -495,7 +573,7 @@ class GroupedConvRegistry : public BaseRegistry<GroupedConvRegistry,
             default:
                 if(c < 0x20)
                 {
-                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (int)c;
+                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
                 }
                 else
                 {
@@ -596,6 +674,30 @@ class GroupedConvDispatcher
         return kernel->run(problem, stream);
     }
 
+    /// Run a production convolution exactly once on an explicitly identified device.
+    float run(const void* input_ptr,
+              const void* weight_ptr,
+              void* output_ptr,
+              const GroupedConvProblem& problem,
+              int device_ordinal,
+              void* stream = nullptr,
+              ConvDeviceArchProvider arch_provider = {})
+    {
+        const auto* kernel = select_kernel(problem);
+        if(!kernel)
+        {
+            throw NoKernelFound("No suitable grouped convolution kernel found for problem: " +
+                                problem.to_string());
+        }
+        ScopedConvInvocationContext invocation({input_ptr,
+                                                weight_ptr,
+                                                output_ptr,
+                                                device_ordinal,
+                                                1,
+                                                std::move(arch_provider)});
+        return kernel->run(problem, stream);
+    }
+
     /// Run convolution with buffer pointers and automatic kernel selection.
     /// Sets the thread-local buffer context before dispatching to the kernel.
     float run(const void* input_ptr,
@@ -612,13 +714,16 @@ class GroupedConvDispatcher
             throw NoKernelFound("No suitable grouped convolution kernel found for problem: " +
                                 problem.to_string());
         }
-        g_conv_dispatch_buffers.input_ptr    = input_ptr;
-        g_conv_dispatch_buffers.weight_ptr   = weight_ptr;
-        g_conv_dispatch_buffers.output_ptr   = output_ptr;
-        g_conv_dispatch_buffers.warmup       = warmup;
-        g_conv_dispatch_buffers.repeat       = repeat;
-        g_conv_dispatch_buffers.benchmarking = benchmarking_;
-        g_conv_dispatch_buffers.split_k      = problem.split_k;
+        auto& context          = mutable_conv_invocation_context();
+        context.input_ptr      = input_ptr;
+        context.weight_ptr     = weight_ptr;
+        context.output_ptr     = output_ptr;
+        context.device_ordinal = -1;
+        context.k_batch        = problem.split_k;
+        context.arch_provider  = {};
+        context.benchmarking   = benchmarking_;
+        context.warmup         = warmup;
+        context.repeat         = repeat;
         return kernel->run(problem, stream);
     }
 
@@ -645,7 +750,8 @@ class GroupedConvDispatcher
         {
             for(const auto* kernel : all)
             {
-                if(kernel->name().find(name) != std::string::npos && kernel->matches(problem))
+                if(kernel->name().find(name) != std::string::npos &&
+                   GroupedConvRegistry::is_executable_candidate(*kernel, problem))
                 {
                     return kernel;
                 }

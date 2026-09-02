@@ -19,8 +19,10 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 DISPATCHER_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(DISPATCHER_DIR / "codegen"))
 sys.path.insert(0, str(DISPATCHER_DIR / "python"))
+sys.path.insert(0, str(DISPATCHER_DIR / "scripts"))
 
 from codegen_common import TileConfig, TraitConfigBase  # noqa: E402
+from registration_codegen import make_registration_block, parse_kernel_metadata  # noqa: E402
 
 from unified_grouped_conv_codegen import (  # noqa: E402
     GroupedConvVariant,
@@ -31,6 +33,7 @@ from unified_grouped_conv_codegen import (  # noqa: E402
     CKTileGroupedConvKernelGenerator,
     GroupedConvDispatcherWrapperGenerator,
     UnifiedGroupedConvCodegen,
+    get_default_configs,
 )
 
 
@@ -324,6 +327,39 @@ class TestGroupedConvDispatcherWrapperGenerator(unittest.TestCase):
         self.assertIn("#include", result)
         self.assertIn("namespace", result)
 
+    def test_generate_uses_flat_key_and_canonical_id(self):
+        gen = GroupedConvDispatcherWrapperGenerator("fp16")
+        config = self._make_config()
+        kernel_path = DISPATCHER_DIR / "build" / "generated" / "test_kernel.hpp"
+        output_dir = DISPATCHER_DIR / "build" / "generated"
+        result = gen.generate(config, kernel_path, output_dir)
+        self.assertIn('key.dtype_in = "fp16";', result)
+        self.assertIn('key.layout = "nhwgc_gkyxc_nhwgk";', result)
+        self.assertIn("key.ndim_spatial = 2;", result)
+        self.assertNotIn("const auto kernel_id = key.kernel_id();", result)
+        self.assertIn("std::move(is_supported_fn));", result)
+        self.assertNotIn("key.signature", result)
+        self.assertNotIn("key.algorithm", result)
+
+        config.ndim_spatial = 3
+        result = gen.generate(config, kernel_path, output_dir)
+        self.assertIn('key.layout = "ndhwgc_gkzyxc_ndhwgk";', result)
+
+    def test_generate_uses_real_backend_factories(self):
+        gen = GroupedConvDispatcherWrapperGenerator("fp16")
+        config = self._make_config()
+        kernel_path = DISPATCHER_DIR / "build" / "generated" / "test_kernel.hpp"
+        output_dir = DISPATCHER_DIR / "build" / "generated"
+        result = gen.generate(config, kernel_path, output_dir)
+        launcher = f"{config.name('fp16')}_Launcher"
+        self.assertIn(
+            f"backends::make_conv_fwd_run_fn<{launcher}, 2>()", result
+        )
+        self.assertIn(
+            f"backends::make_conv_fwd_is_supported_fn<{launcher}, 2>()", result
+        )
+        self.assertNotIn("return 0.0f", result)
+
 
 # =============================================================================
 # TestUnifiedGroupedConvCodegen
@@ -354,6 +390,27 @@ class TestUnifiedGroupedConvCodegen(unittest.TestCase):
         self.assertIsInstance(results["kernels"], list)
         self.assertIsInstance(results["wrappers"], list)
         self.assertIsInstance(results["failed"], list)
+
+    def test_generate_all_rejects_duplicate_kernel_identity(self):
+        output_dir = DISPATCHER_DIR / "build" / "generated" / "duplicate_test"
+        codegen = UnifiedGroupedConvCodegen(
+            output_dir=output_dir,
+            datatype="fp16",
+            ndim_spatial=2,
+            gpu_target="gfx942",
+            enable_arch_filter=False,
+        )
+        tile = TileConfig(128, 128, 32, 2, 2, 1, 32, 32, 16)
+        trait = GroupedConvTraitConfig(
+            "mem", "cshuffle", "intrawave", False, False, False
+        )
+        config = GroupedConvKernelConfig(tile=tile, trait=trait)
+        results = codegen.generate_all(
+            configs=[config, config], datatypes=["fp16"], parallel=False
+        )
+        self.assertEqual([], results["kernels"])
+        self.assertEqual(1, len(results["failed"]))
+        self.assertIn("Duplicate generated kernel identity", results["failed"][0])
 
     def test_generate_all_with_mock_config_produces_output(self):
         output_dir = DISPATCHER_DIR / "build" / "generated" / "grouped_conv_test"
@@ -586,6 +643,108 @@ class TestTwoStageBwdWeightCodegen(unittest.TestCase):
         self.assertGreater(
             len(single_stage), 0, "Should still have single-stage configs"
         )
+
+
+class TestProductionRegistrationMetadata(unittest.TestCase):
+    def test_2d_uses_canonical_combined_layout(self):
+        name = (
+            "grouped_conv_fwd_fp16_nhwgc_2d_compv3_cshuffle_intrawave_"
+            "32x64x32_2x4x1_16x16x16"
+        )
+        metadata = parse_kernel_metadata(name)
+        self.assertEqual("nhwgc_gkyxc_nhwgk", metadata["layout"])
+        block = "\n".join(
+            make_registration_block(
+                name, 0, "GroupedConvOp::Forward",
+                "backends::make_conv_fwd_run_fn",
+                "backends::make_conv_fwd_is_supported_fn",
+            )
+        )
+        self.assertIn('key.layout       = "nhwgc_gkyxc_nhwgk";', block)
+
+    def test_3d_uses_canonical_combined_layout(self):
+        name = (
+            "grouped_conv_fwd_fp16_ndhwgc_3d_compv3_cshuffle_intrawave_"
+            "32x64x32_2x4x1_16x16x16"
+        )
+        metadata = parse_kernel_metadata(name)
+        self.assertEqual("ndhwgc_gkzyxc_ndhwgk", metadata["layout"])
+        block = "\n".join(
+            make_registration_block(
+                name, 0, "GroupedConvOp::Forward",
+                "backends::make_conv_fwd_run_fn",
+                "backends::make_conv_fwd_is_supported_fn",
+            )
+        )
+        self.assertIn('key.layout       = "ndhwgc_gkzyxc_ndhwgk";', block)
+
+
+class TestRdnaProductionCatalog(unittest.TestCase):
+    def _configs(self, ndim):
+        return get_default_configs(
+            arch="gfx1100",
+            variants=[GroupedConvVariant.FORWARD],
+            ndims=[ndim],
+            datatypes=["fp16"],
+            rule_set="rdna",
+        )
+
+    def test_catalog_is_stable_and_covers_required_waves(self):
+        configs = self._configs(2)
+        self.assertEqual(4, len(configs))
+        self.assertEqual(
+            [(2, 4, 1), (1, 8, 1), (8, 1, 1), (4, 2, 1)],
+            [(c.tile.warp_m, c.tile.warp_n, c.tile.warp_k) for c in configs],
+        )
+        self.assertEqual(
+            sorted(c.name("fp16") for c in configs),
+            sorted(c.name("fp16") for c in self._configs(2)),
+        )
+
+    def test_catalog_has_nonzero_2d_and_3d_fp16_forward(self):
+        for ndim in (2, 3):
+            configs = self._configs(ndim)
+            self.assertTrue(configs)
+            for config in configs:
+                self.assertEqual("fp16", config.datatype)
+                self.assertEqual(GroupedConvVariant.FORWARD, config.variant)
+                self.assertEqual("compv3", config.trait.pipeline)
+                self.assertEqual((2, 2, 8), (
+                    config.vector_size_a,
+                    config.vector_size_b,
+                    config.vector_size_c,
+                ))
+                block_size = 32 * config.tile.warp_m * config.tile.warp_n * config.tile.warp_k
+                self.assertGreaterEqual(
+                    config.tile.tile_m * config.tile.tile_k // (block_size * config.vector_size_a), 1
+                )
+                self.assertGreaterEqual(
+                    config.tile.tile_n * config.tile.tile_k // (block_size * config.vector_size_b), 1
+                )
+                self.assertEqual((16, 16, 16), (
+                    config.tile.warp_tile_m,
+                    config.tile.warp_tile_n,
+                    config.tile.warp_tile_k,
+                ))
+
+    def test_default_catalog_remains_empty_for_gfx1100(self):
+        configs = get_default_configs(
+            arch="gfx1100",
+            variants=[GroupedConvVariant.FORWARD],
+            ndims=[2, 3],
+            datatypes=["fp16"],
+            rule_set="default",
+        )
+        self.assertEqual([], configs)
+
+    def test_production_filter_is_fail_closed(self):
+        with patch("unified_grouped_conv_codegen.HAS_ARCH_FILTER", False):
+            with self.assertRaisesRegex(RuntimeError, "required but unavailable"):
+                UnifiedGroupedConvCodegen(
+                    output_dir=DISPATCHER_DIR / "build" / "missing-filter",
+                    gpu_target="gfx1100",
+                    require_arch_filter=True,
+                )
 
 
 if __name__ == "__main__":
